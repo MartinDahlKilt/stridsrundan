@@ -1,0 +1,58 @@
+import type { CharacterSheet } from './types';
+
+/**
+ * Rules options – every interpretation from combat-rules §20 that is worth switching lives here.
+ * Defaults are the decisions accepted on 2026-10-24.
+ */
+export interface RulesConfig {
+  /** SIM-5: 'never' = perfect attacks get no parry roll (default); 'perfectParry' = only a perfect parry stops one. */
+  perfectAttackParry: 'never' | 'perfectParry';
+  /** GAP-9: add SB to SP damage as well as KP. */
+  sbOnSp: boolean;
+  /** GAP-12: the longer weapon strikes first when fighters first come into reach. */
+  longerWeaponStrikesFirst: boolean;
+  /** Offer "roll with the blow" when SP damage after armour is at least this much. */
+  rollWithBlowThreshold: number;
+  /** Wind in m/s from the side (GAP-10). 0 = no wind. */
+  windMs: number;
+  /**
+   * Use the optional chapter "Österländska krigare" (KH 6645–7668): eastern martial-art techniques,
+   * eastern weapons, armour and professions. Off by default.
+   */
+  easternWarriors: boolean;
+  /**
+   * HH 572–577, fumbles at FV > 20: 'hh' = after a 20, a 2nd roll above FV/2 (and always 16–20) fumbles;
+   * 'base' = only two 20s in a row, as for CL ≥ 20 in the basic rules.
+   */
+  heroicFumble: 'hh' | 'base';
+  /** Chance (%) that the gods restore a hero with Gudarnas gunstling when total KP reaches 0 (HH: 25–50%). */
+  favouredByGodsChance: number;
+  /** Safety stop. */
+  maxRounds: number;
+}
+
+export const DEFAULT_RULES: RulesConfig = {
+  perfectAttackParry: 'never',
+  sbOnSp: true,
+  longerWeaponStrikesFirst: true,
+  rollWithBlowThreshold: 4,
+  windMs: 0,
+  easternWarriors: false,
+  heroicFumble: 'hh',
+  favouredByGodsChance: 25,
+  maxRounds: 60,
+};
+
+/**
+ * Martial-art techniques that exist only in the eastern schools (KH 7516–7588).
+ * Techniques the eastern list shares with the basic rules or the weapon academies
+ * (Dödande anfall, Förutse blotta, Undanmanöver, Virvelvindsanfall, Psykisk duell, Anfall bakifrån)
+ * stay available as weapon techniques.
+ */
+export const EASTERN_TECHNIQUES = ['projectileParry', 'predictAttack', 'kiai', 'rollingAttack', 'armouredFighting', 'fallingKick'];
+
+/** The sheet as used in a fight under these rules (eastern techniques removed when the option is off). */
+export function applyRuleOptions(sheet: CharacterSheet, rules: RulesConfig): CharacterSheet {
+  if (rules.easternWarriors || !sheet.martialArtTechniques) return sheet;
+  return { ...sheet, martialArtTechniques: sheet.martialArtTechniques.filter((t) => !EASTERN_TECHNIQUES.includes(t)) };
+}
