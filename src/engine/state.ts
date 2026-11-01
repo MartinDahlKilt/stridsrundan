@@ -49,8 +49,21 @@ export function createCombat(setups: CombatantSetup[], seed: number, rules: Part
     seed,
     engaged: [],
     bloodDrawn: false,
+    rolls: [],
   };
-  return { state, dice: dice ?? seededDice(seed), rules: merged };
+  return { state, dice: recordingDice(dice ?? seededDice(seed), state), rules: merged };
+}
+
+/** Wraps the dice so every roll is also stored in the state (shown in the dice tray). */
+function recordingDice(inner: Dice, state: CombatState): Dice {
+  let id = 1;
+  return {
+    d(sides) {
+      const value = inner.d(sides);
+      state.rolls.push({ id: id++, sides, value, logId: state.nextLogId, round: state.round });
+      return value;
+    },
+  };
 }
 
 export function log(ctx: Ctx, text: string, tone: LogEntry['tone'] = 'info', depth: LogEntry['depth'] = 1, actorId?: string): void {

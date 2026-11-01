@@ -1051,7 +1051,7 @@ All proposed defaults, corrections and SIM interpretations below were **accepted
 | SIM-14 | Hero point declared with the attack/parry, applied to the result | §21.2 |
 | SIM-15 | FV 21+ extra action as a weapon-only slot | §21.3 |
 | SIM-16 | Psyching out = whole-round action resolved at end of round | §21.4 |
-| SIM-17 | Suicide attack offered when a hero is taken out | §21.5 |
+| SIM-17 | Suicide attack offered whenever a hero is taken out of the fight (any cause except death) | §21.5 – kept deliberately (2026-11-01), although the text ties it to total KP near or at zero (HH 910–912) |
 | NOTE | The skill "Bära rustning" (wear armour) appears in eastern profession skill lists but is never described | Ignored |
 | OCR-10 | "Om en magikers PSY-poäng sjunker ner till dör han" `[III 226]` – the number is missing | Read as **below 0**: spending down to 0 is safe, only a suicide spell goes below (§22.2) |
 | OCR-11 | Spell names garbled in III: "BUKT" = BLIXT, "KALLA ELÄNDEN" = KALLA HANDEN, FROST range "Sx10 minuter" = S×10 squares | Corrected from the MH spell register `[MH 5980]` |
@@ -1126,7 +1126,7 @@ hero; the hero ability *Orädd* (Fearless) is immune.
 ### 21.5 Suicide attack `[HH 904–917]`
 When a hero's KP approach or reach zero, the hero may rise and fight at **full physical strength, original KP and normal FV for FYS/2
 rounds**, ignoring all damage except from magic weapons and **perfect hits**; when the time is up the hero collapses and **dies**.
-🔧 SIM-17: offered once per fight whenever a hero is taken out of the fight (not if already dead, and not after fleeing); KP and SP are
+🔧 SIM-17 (kept deliberately, 2026-11-01): offered once per fight whenever a hero is taken out of the fight – also after falling from pain, a failed PSY roll or a critical – but not if already dead or after fleeing. The text ties it to total KP "närmar sig noll, eller kanske rent av redan är nere på noll" and lets the hero choose it while still standing; neither restriction is applied; KP and SP are
 restored, wound penalties cleared (critically injured limbs stay ruined); a perfect hit that drops the hero again kills.
 
 ### 21.6 Hero abilities used in combat `[HH 279–495, 2681–2810]`

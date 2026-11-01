@@ -530,4 +530,15 @@ export interface CombatState {
   engaged: string[];
   /** Somebody has taken KP damage (wakes the Wild beast). */
   bloodDrawn: boolean;
+  /** Every die rolled, for the dice tray. */
+  rolls: DieRoll[];
+}
+
+export interface DieRoll {
+  id: number;
+  sides: number;
+  value: number;
+  /** The log entry that describes this roll: the next entry written after it. */
+  logId: number;
+  round: number;
 }

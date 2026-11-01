@@ -36,6 +36,7 @@ export function SetupScreen({ initial, onStart }: { initial: FightConfig | null;
       <header className="setup-header">
         <h1>Stridsrundan</h1>
         <p className="subtitle">a combat simulator for Drakar och Demoner</p>
+        <div className="ornament" aria-hidden="true">❦</div>
         <p className="muted">
           Detailed combat from <em>Krigarens Handbok</em>, with the basic rules where it is silent. Pick two fighters; they start about 20 m apart.
         </p>
@@ -127,8 +128,8 @@ export function SetupScreen({ initial, onStart }: { initial: FightConfig | null;
           </label>
         </details>
         {noHuman && <p className="warn">Both sides are computer-controlled – you will watch the fight.</p>}
-        <button className="primary big" onClick={() => onStart({ sides, seed, rules, pauseAfterEachAction: pause })}>
-          Start fight
+        <button className="seal" onClick={() => onStart({ sides, seed, rules, pauseAfterEachAction: pause })}>
+          ⚔ To battle! ⚔
         </button>
       </section>
     </div>

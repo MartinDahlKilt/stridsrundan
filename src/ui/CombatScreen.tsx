@@ -7,6 +7,7 @@ import { Battlefield } from './Battlefield';
 import { CombatantPanel } from './CombatantPanel';
 import { CombatLog } from './CombatLog';
 import { DecisionPanel, type BoardMode } from './DecisionPanel';
+import { DiceTray } from './DiceTray';
 
 export function CombatScreen({ session, config, onNewFight, onRematch }: { session: CombatSession; config: FightConfig; onNewFight: () => void; onRematch: () => void }) {
   const [, setTick] = useState(0);
@@ -55,6 +56,7 @@ export function CombatScreen({ session, config, onNewFight, onRematch }: { sessi
     <div className="combat">
       <header className="topbar">
         <div className="title">
+          <span className="brand">Stridsrundan</span>
           <strong>Round {s.round || '–'}</strong>
           {s.opp > 0 && !s.over && <span className="muted"> · opportunity {s.opp}</span>}
         </div>
@@ -78,10 +80,13 @@ export function CombatScreen({ session, config, onNewFight, onRematch }: { sessi
 
       <main className="combat-main">
         <div className="left">
-          <Battlefield state={s} highlight={boardMode?.squares ?? null} highlightKind={boardMode?.kind ?? null} onSquare={onSquare} activeId={pending?.actorId ?? null} />
+          <div className="table-row">
+            <Battlefield state={s} highlight={boardMode?.squares ?? null} highlightKind={boardMode?.kind ?? null} onSquare={onSquare} activeId={pending?.actorId ?? null} />
+            <DiceTray state={s} />
+          </div>
           {s.over && (
             <div className="result">
-              <h2>{s.winner === null ? 'No winner' : `${s.combatants.filter((c) => c.team === s.winner).map((c) => c.sheet.name).join(' & ')} wins!`}</h2>
+              <h2>⚔ {s.winner === null ? 'No winner' : `${s.combatants.filter((c) => c.team === s.winner).map((c) => c.sheet.name).join(' & ')} wins!`} ⚔</h2>
               <p className="muted">After {s.round} round{s.round === 1 ? '' : 's'}.</p>
             </div>
           )}
