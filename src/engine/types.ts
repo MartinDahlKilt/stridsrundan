@@ -57,7 +57,7 @@ export const ATTRIBUTE_NAMES: Record<Attribute, string> = {
 /** right/left; dubbelhänt = either hand, not both at once; ambidextrous = both at once (§2.6). */
 export type Handedness = 'right' | 'left' | 'dubbelhant' | 'ambidextrous';
 
-export type Race = 'human' | 'elf' | 'dwarf' | 'halfling' | 'halfelf' | 'halforc';
+export type Race = 'human' | 'elf' | 'dwarf' | 'halfling' | 'halfelf' | 'halforc' | 'duck';
 
 export type Profession =
   | 'warrior'
@@ -71,6 +71,18 @@ export type Profession =
   | 'ranger'
   | 'warriorMonk'
   | 'samurai'
+  | 'ronin'
+  | 'kensai'
+  | 'budoka'
+  | 'ninja'
+  | 'paladin'
+  | 'bountyHunter'
+  | 'thief'
+  | 'mariner'
+  | 'monk'
+  | 'bard'
+  | 'healer'
+  | 'scholar'
   | 'wizard'
   | 'archmage';
 

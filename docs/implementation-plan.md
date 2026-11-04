@@ -13,7 +13,7 @@ Based on the extracted rules in [combat-rules.md](combat-rules.md). Rule referen
 - **UI in English.** Swedish rule terms (KP, SP, CL, SR, blotta) appear only as tooltips/glossary next to their English names.
 
 **Non-goals (prototype)**
-- **No interactive character builder.** Presets are static data files. (Importing characters from the separate character project is a later, optional step.)
+- **No full character builder.** Presets are static data files. A light **custom character editor** (added 2026-11-01) starts as a copy of the selected fighter (its armour and any hero/magic features come along) and lets the player pick race (racial attribute modifiers, STO range, half-orc +4 Slagsmål; I 551–700), profession and attributes, add any combat skills at any FV and choose weapons. Skills are labelled primary / profession / secondary from the basic rules' skill table and the profession lists (`src/data/professions.ts`, `src/data/skills.ts`); breaking a rule is noted, never blocked. Custom characters are saved in the browser's localStorage. (Importing characters from the separate character project is a later, optional step.)
 - Fancy graphics, animation, sound.
 - Mounted combat, stealth/backstab, healing, and the rest of the out-of-scope list in combat-rules §19. (Magic was added later – combat-rules §22.)
 

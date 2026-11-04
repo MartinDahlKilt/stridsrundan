@@ -46,7 +46,7 @@ export function movement(sum: number): number {
   return 16 + Math.ceil((sum - 92) / 8);
 }
 
-export const RACE_MOVEMENT: Record<string, number> = { elf: 1, dwarf: -2, halfling: -2 };
+export const RACE_MOVEMENT: Record<string, number> = { elf: 1, dwarf: -2, halfling: -2, duck: -2 };
 
 /** Armour weight modifier (§17.3) from STO + STY + FYS, as a factor. */
 export function armourWeightFactor(sum: number): number {

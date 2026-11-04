@@ -28,6 +28,8 @@ npm run sim -- --all --n 200               # every preset against every other
 npm run sim -- ranger monk --n 500 --eastern  # with the optional eastern-warriors rules
 ```
 
+In the setup screen, **✎ New character…** opens the custom character editor. It starts as a copy of the selected fighter; choose race, profession, any combat skills at any FV and up to three weapon sets. Each skill is marked *Primary*, *Profession* or *Secondary* following the basic rules. Custom characters are stored in the browser (localStorage), so the headless sim runner only knows the presets.
+
 Preset ids: `mercenary`, `barbarian`, `knight`, `duellist`, `kane`, `huscarl`, `gladiator`, `cutthroat`, `ranger`, `monk`; heroes `aldric`, `vargan`, `ilsabet`, `morgrath`; wizards `pyromancer`, `frostWitch`, `stormCaller`, `stoneShaper` and the hero archmage `vaelis`; and `samurai` (needs `--eastern`; in the UI it appears when *Eastern warriors* is ticked under Rules options).
 
 Magic follows the basic rules and *Magikerns Handbok* (rules: [combat-rules §22](docs/combat-rules.md#22-magic--basic-rules--magikerns-handbok-mh)): spells cost KH actions (4 for a normal spell, 2 for a quick one, fewer with S above 30), PSY per effect grade, and a wound breaks the concentration. PSY is shown for every combatant.

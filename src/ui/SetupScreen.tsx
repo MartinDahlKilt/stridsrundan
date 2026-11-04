@@ -1,22 +1,24 @@
-import { useMemo, useState } from 'react';
-import { armourDef } from '../data/armour';
-import { itemDef } from '../data/items';
-import { PRESETS, presetById } from '../data/presets';
-import { SCHOOL_NAMES, spellDef } from '../data/spells';
-import { castActions } from '../engine/magic';
-import { countActions, createCombatant, weaponFV } from '../engine/character';
-import { applyRuleOptions, DEFAULT_RULES, type RulesConfig } from '../engine/rules';
-import { TECHNIQUES } from '../engine/requests';
-import { HERO_ABILITY_NAMES, HERO_STATUS } from './labels';
-import { ATTRIBUTE_NAMES, type Attribute, type MagicSchool } from '../engine/types';
+import { useState } from 'react';
+import { PRESETS } from '../data/presets';
+import { DEFAULT_RULES, type RulesConfig } from '../engine/rules';
 import type { FightConfig } from './App';
+import { CharacterEditor, newCustom } from './CharacterEditor';
+import { characterById, isCustomId, type CustomCharacter } from './customCharacters';
+import { SheetCard } from './SheetCard';
 
 export interface SideSetup {
   presetId: string;
   controller: 'human' | 'ai';
 }
 
-export function SetupScreen({ initial, onStart }: { initial: FightConfig | null; onStart: (c: FightConfig) => void }) {
+interface Props {
+  initial: FightConfig | null;
+  customs: CustomCharacter[];
+  onCustomsChange: (list: CustomCharacter[]) => void;
+  onStart: (c: FightConfig) => void;
+}
+
+export function SetupScreen({ initial, customs, onCustomsChange, onStart }: Props) {
   const [sides, setSides] = useState<SideSetup[]>(
     initial?.sides ?? [
       { presetId: 'knight', controller: 'human' },
@@ -28,6 +30,29 @@ export function SetupScreen({ initial, onStart }: { initial: FightConfig | null;
   const [pause, setPause] = useState(initial?.pauseAfterEachAction ?? false);
   const r = { ...DEFAULT_RULES, ...rules };
   const noHuman = sides.every((s) => s.controller === 'ai');
+  // The character being edited, and the side that gets it when saved.
+  const [editing, setEditing] = useState<{ side: number; character: CustomCharacter; isNew: boolean } | null>(null);
+  const sheetOf = (id: string) => characterById(id, customs);
+  const visibleCustoms = customs.filter((c) => r.easternWarriors || !c.sheet.eastern);
+
+  const startNew = (side: number) => {
+    setEditing({ side, character: newCustom(sheetOf(sides[side].presetId)), isNew: true });
+  };
+  const startEdit = (side: number) => {
+    const c = customs.find((x) => x.id === sides[side].presetId);
+    if (c) setEditing({ side, character: structuredClone(c), isNew: false });
+  };
+  const save = (c: CustomCharacter) => {
+    const exists = customs.some((x) => x.id === c.id);
+    onCustomsChange(exists ? customs.map((x) => (x.id === c.id ? c : x)) : [...customs, c]);
+    update(editing!.side, { presetId: c.id });
+    setEditing(null);
+  };
+  const remove = (id: string) => {
+    onCustomsChange(customs.filter((x) => x.id !== id));
+    setSides(sides.map((s) => (s.presetId === id ? { ...s, presetId: 'knight' } : s)));
+    setEditing(null);
+  };
 
   const update = (i: number, patch: Partial<SideSetup>) => setSides(sides.map((s, j) => (j === i ? { ...s, ...patch } : s)));
 
@@ -56,14 +81,36 @@ export function SetupScreen({ initial, onStart }: { initial: FightConfig | null;
               </div>
             </div>
             <select value={s.presetId} onChange={(e) => update(i, { presetId: e.target.value })}>
-              {PRESETS.filter((p) => r.easternWarriors || !p.eastern).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.hero ? '★ ' : p.magic ? '✦ ' : ''}
-                  {p.name} – {p.professionName}
-                </option>
-              ))}
+              <optgroup label="Presets">
+                {PRESETS.filter((p) => r.easternWarriors || !p.eastern).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.hero ? '★ ' : p.magic ? '✦ ' : ''}
+                    {p.name} – {p.professionName}
+                  </option>
+                ))}
+              </optgroup>
+              {visibleCustoms.length > 0 && (
+                <optgroup label="Your characters">
+                  {visibleCustoms.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      ✎ {c.sheet.hero ? '★ ' : c.sheet.magic ? '✦ ' : ''}
+                      {c.sheet.name} – {c.sheet.professionName}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
-            <PresetCard id={s.presetId} rules={r} />
+            <div className="row custom-actions">
+              <button className="small" onClick={() => startNew(i)} title="Make your own character, starting from the one selected">
+                ✎ New character…
+              </button>
+              {isCustomId(s.presetId) && (
+                <button className="small" onClick={() => startEdit(i)}>
+                  Edit
+                </button>
+              )}
+            </div>
+            <SheetCard sheet={sheetOf(s.presetId)} rules={r} />
           </section>
         ))}
       </div>
@@ -106,7 +153,7 @@ export function SetupScreen({ initial, onStart }: { initial: FightConfig | null;
               checked={r.easternWarriors}
               onChange={(e) => {
                 setRules({ ...rules, easternWarriors: e.target.checked });
-                if (!e.target.checked) setSides(sides.map((s) => (presetById(s.presetId).eastern ? { ...s, presetId: 'knight' } : s)));
+                if (!e.target.checked) setSides(sides.map((s) => (sheetOf(s.presetId).eastern ? { ...s, presetId: 'knight' } : s)));
               }}
             />{' '}
             Eastern warriors (Österländska krigare): eastern martial-art techniques such as projectile parry, eastern weapons and professions
@@ -132,130 +179,17 @@ export function SetupScreen({ initial, onStart }: { initial: FightConfig | null;
           ⚔ To battle! ⚔
         </button>
       </section>
+      {editing && (
+        <CharacterEditor
+          key={editing.character.id}
+          initial={editing.character}
+          rules={r}
+          isNew={editing.isNew}
+          onSave={save}
+          onCancel={() => setEditing(null)}
+          onDelete={editing.isNew ? undefined : () => remove(editing.character.id)}
+        />
+      )}
     </div>
   );
-}
-
-function PresetCard({ id, rules }: { id: string; rules: RulesConfig }) {
-  const base = presetById(id);
-  const p = applyRuleOptions(base, rules);
-  const disabled = (base.martialArtTechniques ?? []).filter((t) => !(p.martialArtTechniques ?? []).includes(t));
-  const info = useMemo(() => {
-    const c = createCombatant(p, 'preview', 0, 'ai', { x: 0, y: 0 });
-    return { c, actions: countActions(c) };
-  }, [base, rules.easternWarriors]);
-  const { c, actions } = info;
-  const d = c.derived;
-  return (
-    <div className="preset">
-      <p className="muted">{p.description}</p>
-      <table className="attrs">
-        <tbody>
-          <tr>
-            {(Object.keys(p.attributes) as Attribute[]).map((a) => (
-              <th key={a} title={ATTRIBUTE_NAMES[a]}>
-                {a}
-              </th>
-            ))}
-          </tr>
-          <tr>
-            {(Object.keys(p.attributes) as Attribute[]).map((a) => (
-              <td key={a}>{p.attributes[a]}</td>
-            ))}
-          </tr>
-        </tbody>
-      </table>
-      <dl className="stats">
-        <dt title="Kroppspoäng – hit points">HP (KP)</dt>
-        <dd>{d.kpTotalMax}</dd>
-        <dt title="Smärtpoäng – pain points">Pain (SP)</dt>
-        <dd>{d.spTotalMax}</dd>
-        <dt title="Skadebonus">Damage bonus</dt>
-        <dd>{d.sbText === '0' ? '–' : d.sbText}</dd>
-        <dt title="Förflyttning, squares of 1.5 m per round">Movement</dt>
-        <dd>
-          {d.ffBase + d.loadPenalty} sq
-        </dd>
-        <dt>Actions / round</dt>
-        <dd title={actions.parts.map((x) => `${x.label} ${x.value > 0 ? '+' : ''}${x.value}`).join(', ')}>{actions.total}</dd>
-        <dt title="Load: worn armour counts half">Load</dt>
-        <dd>
-          {d.load} kg{d.loadPenalty ? ` (${d.loadPenalty} SMI/move)` : ''}
-        </dd>
-      </dl>
-      <div className="gear">
-        <strong>Weapons:</strong>{' '}
-        {Object.values(p.equipment.items)
-          .map((it) => {
-            const def = itemDef(it.def);
-            return `${def.name}${it.count && it.count > 1 ? ` ×${it.count}` : ''} (FV ${weaponFV(p, it.def)})`;
-          })
-          .join(', ') || `Unarmed (martial art FV ${p.skills.martialArt ?? p.skills.brawling ?? 0})`}
-        {p.equipment.ammo &&
-          Object.entries(p.equipment.ammo).map(([k, v]) => (
-            <span key={k}>
-              {' '}
-              · {v} {k}s
-            </span>
-          ))}
-        <br />
-        <strong>Armour:</strong> {p.equipment.armour.map((a) => armourDef(a).name).join(', ')} ({d.armourWeightAdjusted} kg)
-        {p.techniques && (
-          <>
-            <br />
-            <strong>Techniques:</strong> {Object.keys(p.techniques).map((t) => TECHNIQUES[t]?.name ?? t).join(', ')}
-          </>
-        )}
-        {p.hero && (
-          <>
-            <br />
-            <strong>★ {p.hero.dark ? 'Dark hero' : 'Hero'}:</strong> {HERO_STATUS[p.hero.status]}, {p.hero.heroPoints} hero points
-            {p.hero.abilities.length > 0 && <> – {p.hero.abilities.map((a) => HERO_ABILITY_NAMES[a]).join(', ')}</>}
-          </>
-        )}
-        {p.magic && (
-          <>
-            <br />
-            <strong>✦ Magic:</strong> {(Object.entries(p.magic.schools) as [MagicSchool, number][]).map(([sch, fv]) => `${SCHOOL_NAMES[sch]} FV ${fv}`).join(', ')} · PSY {p.attributes.PSY}
-            {p.magic.staffPsy ? ` + ${p.magic.staffPsy} in the staff` : ''}
-            <br />
-            <strong>Spells:</strong>{' '}
-            {Object.entries(p.magic.spells)
-              .map(([id, sv]) => {
-                const def = spellDef(id);
-                const n = castActions(def, sv);
-                return `${def.sv} S${sv} (${n} action${n === 1 ? '' : 's'})`;
-              })
-              .join(', ')}
-          </>
-        )}
-        {p.martialArtTechniques && (
-          <>
-            <br />
-            <strong>Martial art:</strong> {p.martialArtTechniques.map(techName).join(', ')}
-            {disabled.length > 0 && <span className="muted"> (off: {disabled.map(techName).join(', ')} – needs the eastern-warriors option)</span>}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-const TECH_NAMES: Record<string, string> = {
-  crushingPunch: 'Crushing punch',
-  roundKick: 'Round kick',
-  jumpKick: 'Jump kick',
-  fallingKick: 'Falling kick',
-  feint: 'Feint',
-  initiativeBonus: 'Initiative bonus',
-  unarmedWeaponParry: 'Unarmed weapon parry',
-  projectileParry: 'Projectile parry',
-  predictAttack: 'Predict attack',
-  kiai: 'Kiai',
-  rollingAttack: 'Rolling attack',
-  armouredFighting: 'Armoured fighting',
-};
-
-function techName(id: string): string {
-  return TECH_NAMES[id] ?? id;
 }

@@ -17,3 +17,19 @@ export const HERO_ABILITY_NAMES: Record<HeroAbility, string> = {
   fearless: 'Fearless',
   heroicReflexes: 'Heroic reflexes',
 };
+
+/** Martial-art (Stridskonst) techniques, KH §12. */
+export const MARTIAL_TECHNIQUE_NAMES: Record<string, string> = {
+  crushingPunch: 'Crushing punch',
+  roundKick: 'Round kick',
+  jumpKick: 'Jump kick',
+  fallingKick: 'Falling kick',
+  feint: 'Feint',
+  initiativeBonus: 'Initiative bonus',
+  unarmedWeaponParry: 'Unarmed weapon parry',
+  projectileParry: 'Projectile parry',
+  predictAttack: 'Predict attack',
+  kiai: 'Kiai',
+  rollingAttack: 'Rolling attack',
+  armouredFighting: 'Armoured fighting',
+};

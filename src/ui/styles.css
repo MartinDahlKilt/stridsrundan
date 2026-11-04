@@ -1139,3 +1139,183 @@ tr.useless td {
 .die-pair .die-phys .die-label {
   display: none;
 }
+
+/* Custom character editor ------------------------------------------------ */
+.custom-actions {
+  margin: -0.2em 0 0.4em;
+}
+.editor-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 3vh 1.5em;
+  overflow-y: auto;
+  background: rgba(20, 12, 6, 0.62);
+}
+.editor {
+  width: min(1180px, 100%);
+  padding: 1.2em 1.4em 1em;
+  border-top: 6px solid var(--leather);
+}
+.editor-head h2 {
+  font-size: 1.5em;
+  margin-bottom: 0.1em;
+}
+.editor-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 1.4em;
+  margin-top: 0.6em;
+}
+.editor-section {
+  margin-bottom: 1em;
+}
+.editor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.6em;
+}
+.editor-grid label {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--heading);
+  font-size: 0.78em;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  gap: 0.2em;
+}
+.editor .editor-grid select,
+.editor .editor-grid input[type='text'] {
+  font-size: 1.15em;
+  font-family: var(--text);
+  letter-spacing: 0;
+}
+.editor input[type='text'] {
+  font-family: var(--text);
+  font-size: 1em;
+  padding: 0.25em 0.4em;
+  border: 1px solid var(--brass);
+  border-radius: 3px;
+  background: #fbf3dc;
+  color: var(--ink);
+}
+.prof-ability {
+  margin: 0 0 0.9em;
+  line-height: 1.45;
+}
+.attr-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+}
+.attr-inputs label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: var(--heading);
+  font-size: 0.75em;
+  color: var(--accent);
+}
+.attr-inputs input {
+  width: 4.2em;
+  text-align: center;
+  font-size: 1.25em;
+}
+.skill-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.4em;
+}
+.skill-table th {
+  text-align: left;
+  font-family: var(--heading);
+  font-size: 0.72em;
+  letter-spacing: 0.05em;
+  color: var(--brass);
+  border-bottom: 1px solid var(--line);
+  padding: 0.2em 0.4em;
+}
+.skill-table td {
+  padding: 0.2em 0.4em;
+  border-bottom: 1px dotted var(--line);
+  vertical-align: middle;
+}
+.skill-table input[type='number'] {
+  width: 4.5em;
+}
+.skill-tag {
+  display: inline-block;
+  padding: 0.05em 0.5em;
+  border-radius: 10px;
+  font-family: var(--heading);
+  font-size: 0.7em;
+  letter-spacing: 0.04em;
+  border: 1px solid;
+  white-space: nowrap;
+}
+.skill-tag.primary {
+  color: var(--good);
+  border-color: var(--good);
+  background: rgba(60, 110, 47, 0.1);
+}
+.skill-tag.profession {
+  color: var(--accent);
+  border-color: var(--gold);
+  background: rgba(233, 198, 106, 0.35);
+}
+.skill-tag.secondary {
+  color: var(--muted);
+  border-color: var(--line);
+}
+.martial {
+  margin-top: 0.6em;
+}
+.tech-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13em, 1fr));
+  gap: 0.15em 0.8em;
+  margin-top: 0.3em;
+}
+.weapon-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+}
+.armour-pick select {
+  max-width: 100%;
+}
+.editor-preview {
+  border-left: 1px solid var(--line);
+  padding-left: 1.2em;
+}
+.editor-foot {
+  display: flex;
+  gap: 0.6em;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-top: 0.8em;
+}
+.editor-foot .spacer {
+  flex: 1;
+}
+button.danger {
+  color: var(--seal);
+  border-color: var(--seal);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+@media (max-width: 900px) {
+  .editor-body,
+  .editor-grid {
+    grid-template-columns: 1fr;
+  }
+  .editor-preview {
+    border-left: none;
+    padding-left: 0;
+  }
+}
