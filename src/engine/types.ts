@@ -454,6 +454,8 @@ export interface Combatant {
   team: number;
   controller: 'human' | 'ai';
   pos: Pos;
+  /** Direction the fighter faces (components −1, 0, 1) – decides attacks from the side and behind. */
+  facing: Pos;
   derived: Derived;
   kp: Record<Location, Pool>;
   kpTotal: Pool;
@@ -515,6 +517,11 @@ export interface Combatant {
   hero: HeroState | null;
   /** Can no longer make a suicide attack (e.g. fled). */
   noLastStand?: boolean;
+  /**
+   * Hidden from the enemy since the start of the fight – only then can the fighter steal up behind someone
+   * (Smyga vs Upptäcka fara). Lost for good once the fighter attacks, shoots, casts or is attacked.
+   */
+  hidden: boolean;
 }
 
 export interface LogEntry {

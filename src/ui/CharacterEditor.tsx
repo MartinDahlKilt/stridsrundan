@@ -435,6 +435,7 @@ function listName(k: string): string {
       fallTechnique: 'Fallteknik',
       drawWeapon: 'Dra vapen',
       techniques: 'Vapentekniker',
+      backstab: 'Anfall bakifrån',
     } as Record<string, string>
   )[k];
 }

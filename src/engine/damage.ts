@@ -34,6 +34,10 @@ export interface DamageOptions {
   maxSpOnly?: boolean;
   /** Item key of a ranged weapon (for weapon spells); melee items are known from the weapon. */
   weaponKey?: string;
+  /** Multiplies the weapon's own damage (the assassin's backstab ×2/×4, I 934–950). */
+  weaponMultiplier?: number;
+  /** Leave out the damage bonus (backstabs, I 938). */
+  noSB?: boolean;
 }
 
 function part(ctx: Ctx, label: string, expr: DiceExpr, max: boolean): { total: number; text: string } {
@@ -60,12 +64,13 @@ export function rollDamage(ctx: Ctx, a: Combatant, w: ResolvedWeapon | { kind: '
 
   const k = part(ctx, ownTwoHanded ? 'weapon (two hands)' : 'weapon', dice.kp, max);
   const s = part(ctx, 'weapon', dice.sp, max || !!o.maxSpOnly);
-  let kp = k.total;
-  let sp = s.total;
-  if (k.text) kpParts.push(k.text);
-  if (s.text) spParts.push(s.text);
+  const mult = o.weaponMultiplier ?? 1;
+  let kp = k.total * mult;
+  let sp = s.total * mult;
+  if (k.text) kpParts.push(k.text + (mult > 1 ? ` ×${mult}` : ''));
+  if (s.text) spParts.push(s.text + (mult > 1 ? ` ×${mult}` : ''));
 
-  if (o.melee && (a.derived.sb.count > 0 || a.derived.sb.mod !== 0)) {
+  if (o.melee && !o.noSB && (a.derived.sb.count > 0 || a.derived.sb.mod !== 0)) {
     const sb = part(ctx, o.doubleSB ? 'SB×2' : 'SB', a.derived.sb, max);
     const v = sb.total * (o.doubleSB ? 2 : 1);
     kp += v;

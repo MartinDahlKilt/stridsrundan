@@ -27,6 +27,11 @@ export interface RulesConfig {
   heroicFumble: 'hh' | 'base';
   /** Chance (%) that the gods restore a hero with Gudarnas gunstling when total KP reaches 0 (HH: 25–50%). */
   favouredByGodsChance: number;
+  /**
+   * Facing (II 1732–1756): melee attacks from the side +3 CL, from behind +7; an unnoticed attacker from behind
+   * (Smyga vs Upptäcka fara) can't be parried, and Anfall bakifrån / the assassin's backstab apply.
+   */
+  flanking: boolean;
   /** Safety stop. */
   maxRounds: number;
 }
@@ -40,6 +45,7 @@ export const DEFAULT_RULES: RulesConfig = {
   easternWarriors: false,
   heroicFumble: 'hh',
   favouredByGodsChance: 25,
+  flanking: true,
   maxRounds: 60,
 };
 

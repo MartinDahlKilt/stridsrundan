@@ -1,3 +1,4 @@
+import { attackDirection, DIRECTION_BONUS } from './facing';
 import { itemDef, UNARMED, type UnarmedAttackDef, GROUP_ATTRIBUTE } from '../data/items';
 import { AIM_PENALTY, rangeModifier } from '../data/tables';
 import { armOfHand, hasFreeHand, hasHero, heldItem, unarmedAllowed, unarmedFV, weaponFV, mainArm, offArm, canWield } from './character';
@@ -155,7 +156,8 @@ export function aimPenalty(defender: Combatant, loc: Location): number {
 }
 
 /** `locationMod` replaces the aim/wild modifier (used for special attacks such as throwing the sword). */
-export function attackCL(ctx: Ctx, a: Combatant, d: Combatant, w: ResolvedWeapon, location: Location | 'wild', locationMod?: Mod): ClResult {
+/** `thrown`: a thrown sword uses the melee table but isn't a melee attack, so facing doesn't count. */
+export function attackCL(ctx: Ctx, a: Combatant, d: Combatant, w: ResolvedWeapon, location: Location | 'wild', locationMod?: Mod, thrown = false): ClResult {
   const r = ctx.state.round;
   const mods: Mod[] = [];
   const notes: string[] = [];
@@ -171,6 +173,10 @@ export function attackCL(ctx: Ctx, a: Combatant, d: Combatant, w: ResolvedWeapon
   }
   if (w.kind === 'item' && w.offHandPenalty) mods.push({ label: 'shield hand', value: w.offHandPenalty });
   if (hasCondition(d, r, 'prone')) mods.push({ label: 'target on the ground', value: 5 });
+  if (ctx.rules.flanking && !thrown) {
+    const dir = attackDirection(d, a.pos);
+    if (dir !== 'front') mods.push({ label: dir === 'side' ? 'from the side' : 'from behind', value: DIRECTION_BONUS[dir] });
+  }
   if ((a.sheet.abilities ?? []).includes('precision')) mods.push({ label: 'Precision', value: 1 });
   mods.push(...heroMods(ctx, a, w.kind === 'item'));
   if (w.kind === 'item') mods.push(...weaponSpellMods(a, w.key, r));

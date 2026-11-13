@@ -3,11 +3,11 @@ import type { Attribute, Profession } from '../engine/types';
 /**
  * Professions (yrken) and which combat skills they may take as profession skills (yrkesfärdigheter).
  * Only the combat-relevant part of each list is kept: weapon skills, Dolk, Trästav, Två vapen, Stridskonster,
- * Fallteknik, Dra vapen and Vapentekniker. Sources: basic rules I 700–1200, KH 72–390, eastern KH 6600–6770.
+ * Fallteknik, Dra vapen, Anfall bakifrån and Vapentekniker. Sources: basic rules I 700–1200, KH 72–390, eastern KH 6600–6770.
  */
 
 /** Profession-list entries the editor knows about (beyond plain weapon skills). */
-export type ProfessionSkillKey = 'dagger' | 'staff' | 'twoWeapons' | 'martialArt' | 'fallTechnique' | 'drawWeapon' | 'techniques';
+export type ProfessionSkillKey = 'dagger' | 'staff' | 'twoWeapons' | 'martialArt' | 'fallTechnique' | 'drawWeapon' | 'techniques' | 'backstab';
 
 export interface ProfessionDef {
   id: Profession;
@@ -31,6 +31,8 @@ export interface ProfessionDef {
   note?: string;
 }
 
+// KH 1130: Anfall bakifrån is a profession skill for Barbar, Gladiator, Krigarmunk, Soldat, Prisjägare, Vapenmästare,
+// Tjuv and Lönnmördare.
 // KH 1191: Fallteknik is a profession skill for all warrior professions, Lönnmördare, Munk, Tjuv and Utbygdsjägare.
 export const PROFESSIONS: ProfessionDef[] = [
   {
@@ -64,7 +66,7 @@ export const PROFESSIONS: ProfessionDef[] = [
     source: 'basic',
     requires: { SMI: 14, PSY: 12 },
     weaponSkills: 1,
-    skills: ['dagger', 'staff', 'martialArt', 'drawWeapon', 'fallTechnique'],
+    skills: ['dagger', 'staff', 'martialArt', 'drawWeapon', 'fallTechnique', 'backstab'],
     maxProfessionSkills: 12,
     ability: 'Backstab for double to quadruple damage – needs stealth, not in a face-off',
     abilityInSim: false,
@@ -76,7 +78,7 @@ export const PROFESSIONS: ProfessionDef[] = [
     source: 'basic',
     requires: { SMI: 16 },
     weaponSkills: 2,
-    skills: ['dagger', 'staff', 'drawWeapon', 'fallTechnique'],
+    skills: ['dagger', 'staff', 'drawWeapon', 'fallTechnique', 'backstab'],
     maxProfessionSkills: 12,
     ability: 'Spend PSY for +1 CL per point (max +3)',
     abilityInSim: false,
@@ -172,7 +174,7 @@ export const PROFESSIONS: ProfessionDef[] = [
     source: 'kh',
     requires: { STY: 14, FYS: 15 },
     weaponSkills: 5,
-    skills: ['dagger', 'staff', 'drawWeapon', 'fallTechnique'],
+    skills: ['dagger', 'staff', 'drawWeapon', 'fallTechnique', 'backstab'],
     maxProfessionSkills: 12,
     ability: '+3 STO and FYS for KP, +7 FYS for SP',
     abilityInSim: true,
@@ -184,7 +186,7 @@ export const PROFESSIONS: ProfessionDef[] = [
     source: 'kh',
     requires: { STY: 14, FYS: 12, SMI: 12 },
     weaponSkills: 6,
-    skills: ['dagger', 'staff', 'twoWeapons', 'martialArt', 'drawWeapon', 'fallTechnique'],
+    skills: ['dagger', 'staff', 'twoWeapons', 'martialArt', 'drawWeapon', 'fallTechnique', 'backstab'],
     maxProfessionSkills: 12,
     ability: '+3 base chance in weapon profession skills – set the FV directly here',
     abilityInSim: false,
@@ -196,7 +198,7 @@ export const PROFESSIONS: ProfessionDef[] = [
     source: 'kh',
     requires: { STY: 14, FYS: 12, SMI: 16, PSY: 15, INT: 11 },
     weaponSkills: 1,
-    skills: ['staff', 'martialArt', 'fallTechnique'],
+    skills: ['staff', 'martialArt', 'fallTechnique', 'backstab'],
     maxProfessionSkills: 12,
     ability: 'Martial-art techniques cost half – no effect once the character is made',
     abilityInSim: false,
@@ -220,7 +222,7 @@ export const PROFESSIONS: ProfessionDef[] = [
     source: 'kh',
     requires: { STY: 14, FYS: 12, SMI: 14 },
     weaponSkills: 4,
-    skills: ['dagger', 'staff', 'martialArt', 'drawWeapon', 'fallTechnique'],
+    skills: ['dagger', 'staff', 'martialArt', 'drawWeapon', 'fallTechnique', 'backstab'],
     maxProfessionSkills: 12,
     ability: 'Always CL 17 or more in Upptäcka fara – no effect in a face-off',
     abilityInSim: false,
@@ -232,7 +234,7 @@ export const PROFESSIONS: ProfessionDef[] = [
     source: 'kh',
     requires: { STY: 14, FYS: 12 },
     weaponSkills: 5,
-    skills: ['dagger', 'staff', 'twoWeapons', 'drawWeapon', 'fallTechnique'],
+    skills: ['dagger', 'staff', 'twoWeapons', 'drawWeapon', 'fallTechnique', 'backstab'],
     maxProfessionSkills: 12,
     ability: 'Army contacts – no effect in a duel',
     abilityInSim: false,
@@ -256,7 +258,7 @@ export const PROFESSIONS: ProfessionDef[] = [
     source: 'kh',
     requires: { STY: 14, FYS: 12, SMI: 15, PSY: 12 },
     weaponSkills: 2,
-    skills: ['dagger', 'staff', 'martialArt', 'drawWeapon', 'fallTechnique', 'techniques'],
+    skills: ['dagger', 'staff', 'martialArt', 'drawWeapon', 'fallTechnique', 'techniques', 'backstab'],
     maxProfessionSkills: 12,
     ability: 'Spend 5 PSY for one extra parry or attack in a round',
     abilityInSim: false,

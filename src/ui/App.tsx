@@ -3,10 +3,10 @@ import { CombatSession } from '../engine/session';
 import type { RulesConfig } from '../engine/rules';
 import { CombatScreen } from './CombatScreen';
 import { characterById, loadCustoms, saveCustoms, type CustomCharacter } from './customCharacters';
-import { SetupScreen, type SideSetup } from './SetupScreen';
+import { SetupScreen, type FighterSetup } from './SetupScreen';
 
 export interface FightConfig {
-  sides: SideSetup[];
+  fighters: FighterSetup[];
   seed: number;
   rules: Partial<RulesConfig>;
   pauseAfterEachAction: boolean;
@@ -23,7 +23,7 @@ export function App() {
 
   const start = (config: FightConfig) => {
     const session = new CombatSession(
-      config.sides.map((s, i) => ({ sheet: characterById(s.presetId, customs), team: i, controller: s.controller })),
+      config.fighters.map((f) => ({ sheet: characterById(f.presetId, customs), team: f.team, controller: f.controller, pos: f.pos, hidden: f.hidden })),
       config.seed,
       config.rules,
     );
@@ -34,7 +34,7 @@ export function App() {
   if (!fight) return <SetupScreen initial={lastConfig} customs={customs} onCustomsChange={changeCustoms} onStart={start} />;
   return (
     <CombatScreen
-      key={fight.session.state.seed + ':' + fight.config.sides.map((s) => s.presetId).join()}
+      key={fight.session.state.seed + ':' + fight.config.fighters.map((f) => f.presetId).join()}
       session={fight.session}
       config={fight.config}
       onNewFight={() => setFight(null)}

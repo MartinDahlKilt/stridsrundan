@@ -365,6 +365,15 @@ No parry possible (projectile, holding a ranged weapon, unaware, etc.) → treat
 - **Proposed:** perfect attack = no parry, max KP and SP damage + max SB, **armour ignored**, roll on the KH critical table.
   Option (house rule): a perfect attack can be parried, but only by a perfect parry.
 
+### 7.5 Facing, flanking and attacks from behind `[II 1732–1756, KH 1128–1145, I 934–950]` ✅ (rules option *Facing*, default on)
+- **From the side: +3 CL**; the defender may parry. **From behind: +7 CL**.
+- **Unnoticed attacker:** only a fighter **hidden from the start** (chosen per fighter in the setup) can steal up on someone – you can't decide to sneak behind an enemy that has already seen you. A hidden attacker from behind rolls *Smyga*; on a success the defender rolls *Upptäcka fara* at −(the attacker's differensvärde). If that fails, the defender **can't parry**. Both are primary skills: without a value on the sheet the base chance (BC) of SMI / PSY is used, plus racial bonuses (Alv +4 / Halvalv +2 Upptäcka fara, Anka +4 Smyga). Smyga is halved in metal armour `[III 2971–2974]`; a Prisjägare always has CL ≥ 17 in Upptäcka fara `[KH 261]`.
+- **Anfall bakifrån** (skill, SMI) `[KH 1128–1145]`: against an unnoticed defender, its FV is added to the damage of a dagger-sized weapon (no bigger than a short sword).
+- **Lönnmördare** `[I 934–950]`: against an unnoticed defender, weapon damage ×2 on a success and ×4 on a perfect roll, **no SB**; even a failed attack roll hits, for normal damage without SB; a fumble fails. Anfall bakifrån is added after multiplying.
+- A shield doesn't stop missiles from a shooter behind its bearer (§15).
+- Fighting several opponents, a fighter rolls a separate blotta for each one `[KH 1523]` (already modelled).
+- 🔧 SIM-27, SIM-28: how facing is decided and when the Smyga check is made (§20).
+
 ---
 
 ## 8. Damage
@@ -461,7 +470,7 @@ For the simulator, anything "out of the fight" ends that combatant's participati
 | **Tappa balansen** (lose balance) | Losing **more SP than your STO in a single attack** knocks you back and you lose your next action. A successful *Fallteknik* roll prevents this | KH 1920 |
 | **Liggande strid** (prone) | A prone fighter can only use a dagger, short sword, crossbow or natural weapons. Melee attackers get +5 against them | II 1726 |
 | **Fasthållning** (grappling) | Attack with CL = (STO+SMI+STY)/3. If it hits, STY vs STY on the resistance table to hold. Re-roll every round; neither can do anything else | II 1706 |
-| **Attack from the side / behind** | +3 / +7 (§7.1) | II 1732–1756 |
+| **Attack from the side / behind** | +3 / +7, unnoticed from behind: no parry (§7.5) | II 1732–1756 |
 | Slå ur sadeln, Strypa, falling, water, fire | Out of scope for v1 | |
 
 ⚠️ *Svepande hugg* also exists as a **weapon technique** (§12) with different rules. 🔧 SIM: anyone can use the situation version; trained characters can use the technique version instead.
@@ -655,7 +664,7 @@ Each technique is a separate skill (its own FV, capped by the FV of the weapon).
 | Virvelvindsanfall (whirlwind) | SMI | −3 CL; a new target each action without spending an action on movement (≤ 3 squares between targets). Attackers get −3 CL against you. Weapons with STY requirement ≤ 15 only | Mode |
 | Vrida klinga (bind blade) | SMI | +5 CL to attack the arm | With an attack |
 
-Out of scope: Anfall bakifrån, Kasta svärd, Psykisk duell.
+Out of scope: the technique Anfall bakifrån (slipping past to the back – the *skill* Anfall bakifrån is in, §7.5), Kasta svärd, Psykisk duell.
 
 Academy packages (used for presets):
 - **Fäktskolan på Beyural** (rapier + dagger): Avväpna, Distrahera, Förutse blotta, Hugg, Lång stöt, Parering, Smärtstöt, Stöt, Undanmanöver `[KH 3313–3317]`
@@ -1002,7 +1011,7 @@ A side loses when all its combatants are out. The log reports the cause (e.g. "u
 ---
 
 ## 19. Out of scope for the prototype
-Mounted combat, animal/monster hit tables, fältslag, castles, demonic/elemental/divine items, gunpowder weapons, strangling, backstab/stealth, darkness, healing, infections, falling/fire/water damage.
+Mounted combat, animal/monster hit tables, fältslag, castles, demonic/elemental/divine items, gunpowder weapons, strangling, stealth outside the rear attack (§7.5), darkness, healing, infections, falling/fire/water damage.
 Magic is in (§22), limited to combat spells of Elementarmagi; the spells left out are listed in §22.8.
 
 ---
@@ -1064,6 +1073,8 @@ All proposed defaults, corrections and SIM interpretations below were **accepted
 | SIM-24 | ELDKLOT "1T6 brännskador under 1T3 SR", INRE ELD | 1T6 KP and 1T6 SP at the end of each following round, to total KP/SP, no armour |
 | SIM-25 | EXPLOSION blinds "unless they protect themselves" | Everyone but the caster: −15 CL (darkness `[II 1350]`) next round |
 | SIM-26 | Magic resistance: "the caster's PSY after paying" vs "the target's PSY" | Both use current PSY points |
+| SIM-27 | The rules don't say which way a fighter faces | A fighter faces the one it last attacked or shot at; after moving it turns to the nearest enemy within 3 squares (else the way it moved); parrying doesn't turn it. Everyone starts facing the nearest enemy. Front = within 67.5° of the facing (the three squares ahead), behind = beyond 112.5° (the three at the back), side = in between. Melee only (not thrown or shot) |
+| SIM-28 | When is a defender "unaware" of an attacker from behind? | Only a fighter marked *hidden* in the setup gets the Smyga check, and only while it is still hidden. It stops being hidden – for the rest of the fight, towards everyone – the moment it attacks (after that first Smyga check), shoots, throws, casts a spell or is attacked. Anyone else attacking from behind gets +7 but the defender may parry |
 | SIM-27 | SKÖLD (quick, personal) as a parry | Prepared with 1 action and then held, or instant with S > 30; the casting roll is the parry. A successful shield stops any blow except a perfect attack |
 | SIM-28 | Aimed spells (KLIPPBLOCK, ISKLOT, KLIPPSVÄRM, VINDSTÖT) | The caster picks any location with no aim penalty – the books give none |
 | SIM-29 | KVÄVA and DRÄNKA in a duel | The victim is out of the fight (helpless). KVÄVA's concentration isn't tracked afterwards |

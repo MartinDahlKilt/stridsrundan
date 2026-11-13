@@ -192,7 +192,7 @@ function swordThrowOptions(ctx: Ctx, c: Combatant): SwordThrowOption[] {
     for (const t of enemiesOf(ctx, c)) {
       const d = squares(c.pos, t.pos);
       if (d < 1 || d > 3) continue;
-      out.push({ targetId: t.id, targetName: t.sheet.name, weapon: hand, weaponName: w.name, cl: attackCL(ctx, c, t, w, 'wild', { label: 'throw sword', value: -6 }) });
+      out.push({ targetId: t.id, targetName: t.sheet.name, weapon: hand, weaponName: w.name, cl: attackCL(ctx, c, t, w, 'wild', { label: 'throw sword', value: -6 }, true) });
     }
   }
   return out;

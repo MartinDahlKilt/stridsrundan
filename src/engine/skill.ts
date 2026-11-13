@@ -68,6 +68,11 @@ export const isSuccess = (o: Outcome) => o === 'success' || o === 'perfect';
  * Hero point "Höja CL" (HH 2972–2981): fumble → failure, failure → success, success → perfect;
  * a perfect roll stays perfect and the hero point is refunded.
  */
+/** Baschans (BC) from an attribute value (I 1590–1601): what a character has in a primary skill without training. */
+export function baseChance(value: number): number {
+  return value <= 3 ? 0 : value <= 8 ? 1 : value <= 12 ? 2 : value <= 16 ? 3 : value <= 20 ? 4 : 5;
+}
+
 export function raiseOutcome(o: Outcome): { outcome: Outcome; refund: boolean } {
   switch (o) {
     case 'fumble':

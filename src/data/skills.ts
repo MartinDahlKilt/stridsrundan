@@ -67,6 +67,9 @@ const GENERAL = 'Combat skills';
 
 const SPECIAL: SkillDef[] = [
   { key: 'brawling', name: 'Brawling', sv: 'Slagsmål', kind: 'primary', attribute: 'STY', listKey: 'weapon', group: 'Primary skills' },
+  { key: 'sneak', name: 'Sneak', sv: 'Smyga', kind: 'primary', attribute: 'SMI', listKey: 'weapon', group: 'Primary skills' },
+  { key: 'spotDanger', name: 'Spot danger', sv: 'Upptäcka fara', kind: 'primary', attribute: 'PSY', listKey: 'weapon', group: 'Primary skills' },
+  { key: 'backstab', name: 'Attack from behind', sv: 'Anfall bakifrån', kind: 'secondary', attribute: 'SMI', listKey: 'backstab', group: GENERAL },
   { key: 'twoWeapons', name: 'Two weapons', sv: 'Två vapen', kind: 'secondary', attribute: 'SMI', listKey: 'twoWeapons', group: GENERAL },
   { key: 'martialArt', name: 'Martial art', sv: 'Stridskonster', kind: 'secondary', attribute: 'SMI', listKey: 'martialArt', group: GENERAL },
   { key: 'fallTechnique', name: 'Fall technique', sv: 'Fallteknik', kind: 'secondary', attribute: 'SMI', listKey: 'fallTechnique', group: GENERAL },

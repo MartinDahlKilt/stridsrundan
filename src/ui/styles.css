@@ -492,6 +492,15 @@ details summary {
 .token.out text.initials {
   fill: #ddd;
 }
+/* Hidden from the enemy since the start (can still steal up behind someone). */
+.token.hidden-token {
+  opacity: 0.55;
+}
+.token.hidden-token .rim {
+  stroke: #ddd;
+  stroke-dasharray: 3 3;
+  stroke-width: 1.5px;
+}
 .bar-bg {
   fill: rgba(0, 0, 0, 0.55);
 }
@@ -1318,4 +1327,62 @@ button:disabled {
     border-left: none;
     padding-left: 0;
   }
+}
+
+/* Several fighters per side, placement and facing ------------------------- */
+.token .facing-mark {
+  fill: var(--gold-light);
+  stroke: #3a2508;
+  stroke-width: 0.8;
+}
+.cell.pick {
+  cursor: pointer;
+}
+.cell.pick:hover {
+  fill: rgba(255, 236, 160, 0.3);
+}
+.fighter {
+  border-top: 1px solid var(--line);
+  padding: 0.6em 0 0.3em;
+}
+.fighter:first-of-type {
+  border-top: none;
+}
+.fighter.selected {
+  background: rgba(233, 198, 106, 0.22);
+  box-shadow: 0 0 0 2px rgba(233, 198, 106, 0.5);
+  border-radius: 3px;
+}
+.fighter-head {
+  display: flex;
+  gap: 0.5em;
+  align-items: flex-start;
+}
+.fighter-head select {
+  flex: 1;
+  min-width: 0;
+}
+.side-card .fighter-head select {
+  width: auto;
+  margin-bottom: 0.3em;
+}
+.fighter details summary {
+  font-size: 0.75em;
+  margin: 0.2em 0;
+}
+.setup-map {
+  margin-top: 1.4em;
+  padding: 1em 1.2em;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4em;
+}
+.setup-map > p {
+  align-self: stretch;
+  text-align: center;
+  margin: 0;
+}
+.setup-map .battlefield {
+  align-self: center;
 }

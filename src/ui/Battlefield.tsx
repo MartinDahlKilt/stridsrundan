@@ -11,19 +11,27 @@ export function Battlefield({
   highlightKind,
   onSquare,
   activeId,
+  anySquare,
 }: {
   state: CombatState;
   highlight: Pos[] | null;
   highlightKind: 'move' | 'run' | null;
   onSquare: (p: Pos) => void;
   activeId: string | null;
+  /** Placement: every square is clickable (setup screen). */
+  anySquare?: boolean;
 }) {
   const w = state.width * CELL;
   const h = state.height * CELL;
   const hl = new Set((highlight ?? []).map((p) => `${p.x},${p.y}`));
-  const [a, b] = state.combatants;
-  const dist = a && b ? metres(a.pos, b.pos) : 0;
   const actor = state.combatants.find((c) => c.id === activeId);
+  // The range line runs from the fighter whose turn it is (or the first one standing) to the nearest enemy.
+  const standing = state.combatants.filter((c) => c.status === 'active');
+  const from = actor && actor.status === 'active' ? actor : standing[0];
+  const foe = from
+    ? standing.filter((c) => c.team !== from.team).sort((x, y) => metres(from.pos, x.pos) - metres(from.pos, y.pos))[0]
+    : undefined;
+  const dist = from && foe ? metres(from.pos, foe.pos) : 0;
 
   return (
     <div className="battlefield">
@@ -75,15 +83,15 @@ export function Battlefield({
               y={y * CELL}
               width={CELL}
               height={CELL}
-              className={on ? `cell hl ${highlightKind}` : 'cell'}
-              onClick={on ? () => onSquare({ x, y }) : undefined}
+              className={on ? `cell hl ${highlightKind}` : anySquare ? 'cell pick' : 'cell'}
+              onClick={on || anySquare ? () => onSquare({ x, y }) : undefined}
             >
               {on && actor && <title>{`Move here (${(Math.max(Math.abs(x - actor.pos.x), Math.abs(y - actor.pos.y)) * SQUARE_M).toFixed(1)} m)`}</title>}
             </rect>
           );
         })}
-        {a && b && a.status === 'active' && b.status === 'active' && (
-          <line x1={(a.pos.x + 0.5) * CELL} y1={(a.pos.y + 0.5) * CELL} x2={(b.pos.x + 0.5) * CELL} y2={(b.pos.y + 0.5) * CELL} className="range-line" />
+        {from && foe && (
+          <line x1={(from.pos.x + 0.5) * CELL} y1={(from.pos.y + 0.5) * CELL} x2={(foe.pos.x + 0.5) * CELL} y2={(foe.pos.y + 0.5) * CELL} className="range-line" />
         )}
         {state.combatants.map((c) => {
           const cx = (c.pos.x + 0.5) * CELL;
@@ -92,9 +100,10 @@ export function Battlefield({
           const spFrac = Math.max(0, c.spTotal.cur / c.spTotal.max);
           const main = heldItem(c, 'main');
           return (
-            <g key={c.id} className={`token team-${c.team} ${c.status === 'out' ? 'out' : ''} ${c.id === activeId ? 'active' : ''}`}>
+            <g key={c.id} className={`token team-${c.team} ${c.status === 'out' ? 'out' : ''} ${c.id === activeId ? 'active' : ''} ${c.hidden && c.status !== 'out' ? 'hidden-token' : ''}`}>
               <ellipse className="base-shadow" cx={cx + 2} cy={cy + 4} rx={CELL * 0.44} ry={CELL * 0.36} />
               <circle className="rim" cx={cx} cy={cy} r={CELL * 0.44} fill="url(#rim)" />
+              {c.status === 'active' && <FacingMark cx={cx} cy={cy} facing={c.facing} />}
               <circle className="face" cx={cx} cy={cy} r={CELL * 0.34} fill={`url(#face-${c.team === 0 ? 0 : 1})`} />
               <text className="initials" x={cx} y={cy + 4} textAnchor="middle">
                 {initials(c.sheet.name)}
@@ -120,17 +129,23 @@ export function Battlefield({
         })}
       </svg>
       <div className="field-caption muted">
-        1 square = 1.5 m · distance {dist} m{highlight ? ` · click a highlighted square to ${highlightKind === 'run' ? 'run' : 'move'}` : ''}
+        1 square = 1.5 m{from && foe ? ` · ${from.sheet.name} – ${foe.sheet.name} ${dist} m` : ''}{highlight ? ` · click a highlighted square to ${highlightKind === 'run' ? 'run' : 'move'}` : ''}
       </div>
     </div>
   );
 }
 
+/** A brass notch on the rim pointing the way the fighter faces. */
+function FacingMark({ cx, cy, facing }: { cx: number; cy: number; facing: Pos }) {
+  const a = Math.atan2(facing.y, facing.x);
+  const at = (r: number, da: number) => `${cx + Math.cos(a + da) * r},${cy + Math.sin(a + da) * r}`;
+  return <polygon className="facing-mark" points={[at(CELL * 0.56, 0), at(CELL * 0.4, 0.42), at(CELL * 0.4, -0.42)].join(' ')} />;
+}
+
 function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .map((w) => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
+  // "Northern Barbarian 2" → "N2": a numbered fighter keeps its number so twins can be told apart.
+  const words = name.split(/\s+/);
+  const num = /^\d+$/.test(words[words.length - 1]) ? words.pop()! : '';
+  const letters = words.map((w) => w[0]).join('').toUpperCase();
+  return num ? letters[0] + num : letters.slice(0, 2);
 }

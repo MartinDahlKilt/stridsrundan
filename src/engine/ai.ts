@@ -5,6 +5,7 @@ import { resolveWeapon } from './cl';
 import { weaponDamageDice } from './damage';
 import { planMagic } from './aiMagic';
 import { type ActionChoice, type AttackChoice, type AttackOption, type DecisionAnswer, type DecisionRequest, type Maneuver } from './requests';
+import { attackDirection } from './facing';
 import { byId, enemiesOf, log, squares, type Ctx } from './state';
 import type { Combatant, Location, Pos } from './types';
 import { LOCATION_NAMES } from './types';
@@ -163,9 +164,10 @@ function decideAction(ctx: Ctx, c: Combatant, req: Extract<DecisionRequest, { ki
   // Close in.
   if (o.move) {
     const reach = Math.max(1, ...meleeReaches(c));
-    const dest = approach(c.pos, nearest.pos, o.move.squares, reach);
+    const dest = approach(c.pos, nearest, o.move.squares, reach, ctx.rules.flanking);
     if (dest) {
-      say(`moves towards ${nearest.sheet.name}.`);
+      const dir = ctx.rules.flanking && squares(dest, nearest.pos) <= reach ? attackDirection(nearest, dest) : 'front';
+      say(`moves ${dir === 'rear' ? 'behind' : dir === 'side' ? 'to the side of' : 'towards'} ${nearest.sheet.name}.`);
       return { kind: 'move', to: dest };
     }
   }
@@ -191,14 +193,20 @@ function meleeReaches(c: Combatant): number[] {
   return out;
 }
 
-/** Pick the reachable square closest to the target, preferring squares within weapon reach. */
-function approach(from: Pos, target: Pos, options: Pos[], reach: number): Pos | null {
+/**
+ * Pick the reachable square closest to the target, preferring squares within weapon reach – and among those,
+ * squares at the target's side (+3 CL) or back (+7 CL) when facing counts.
+ */
+function approach(from: Pos, foe: Combatant, options: Pos[], reach: number, flanking: boolean): Pos | null {
+  const target = foe.pos;
   let best: { p: Pos; score: number } | null = null;
   for (const p of options) {
     const d = squares(p, target);
     if (d === 0) continue;
     const inReach = d <= reach;
-    const score = (inReach ? 1000 : 0) - d * 10 - squares(from, p) * (inReach ? 1 : 0) - Math.abs(p.y - target.y) * 0.1;
+    const dir = flanking && inReach ? attackDirection(foe, p) : 'front';
+    const flank = dir === 'rear' ? 40 : dir === 'side' ? 20 : 0;
+    const score = (inReach ? 1000 : 0) + flank - d * 10 - squares(from, p) * (inReach ? 1 : 0) - Math.abs(p.y - target.y) * 0.1;
     if (!best || score > best.score) best = { p, score };
   }
   if (!best) return null;

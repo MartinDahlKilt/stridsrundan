@@ -18,6 +18,7 @@ export function CombatScreen({ session, config, onNewFight, onRematch }: { sessi
   const mode = config.pauseAfterEachAction ? 'step' : 'untilHuman';
   const s = session.state;
   const allAi = s.combatants.every((c) => c.controller === 'ai');
+  const winners = s.combatants.filter((c) => c.team === s.winner && c.status === 'active').map((c) => c.sheet.name);
 
   useEffect(() => {
     if (started.current) return;
@@ -86,7 +87,7 @@ export function CombatScreen({ session, config, onNewFight, onRematch }: { sessi
           </div>
           {s.over && (
             <div className="result">
-              <h2>⚔ {s.winner === null ? 'No winner' : `${s.combatants.filter((c) => c.team === s.winner).map((c) => c.sheet.name).join(' & ')} wins!`} ⚔</h2>
+              <h2>⚔ {s.winner === null ? 'No winner' : `${winners.join(' & ')} win${winners.length === 1 ? 's' : ''}!`} ⚔</h2>
               <p className="muted">After {s.round} round{s.round === 1 ? '' : 's'}.</p>
             </div>
           )}
