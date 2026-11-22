@@ -93,7 +93,7 @@ describe('whole fights', () => {
         }
       }
     }
-  });
+  }, 30_000); // heavy: all pairings × 5 seeds; CI runners are slower than local
 
   it('the same seed gives the same fight', () => {
     const a = simulate(duel('knight', 'duellist'), 77).state.log.map((e) => e.text);
