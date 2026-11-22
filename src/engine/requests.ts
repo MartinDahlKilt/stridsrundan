@@ -1,10 +1,13 @@
 import { itemDef } from '../data/items';
 import { lookup, BLOTTA_TABLE } from '../data/tables';
-import { armOfHand, canWield, hasHero, hasMartialTechnique, heldItem } from './character';
-import { attackCL, checkRanged, meleeWeapons, parryCL, rangedCL, rangedWeapon, resolveWeapon, type ClResult, type Mod, type ParryContext, type ParrySource, type ResolvedWeapon, type WeaponRef } from './cl';
+import { armOfHand, canWield, effectiveSMI, hasHero, hasMartialTechnique, heldItem } from './character';
+import { attackCL, checkRanged, COVERED_BY_LOW, meleeWeapons, parryCL, rangedCL, rangedWeapon, resolveWeapon, type ClResult, type Mod, type ParryContext, type ParrySource, type ResolvedWeapon, type WeaponRef } from './cl';
 import { currentFF, freeSlots, generalSlots, hasCondition, limbUsable, slotFor, slotWeaponOf } from './conditions';
 import { magicOptions, shieldBV, shieldParry, type MagicOptions, type SpellTarget } from './magic';
-import { enemiesOf, inBounds, occupied, squares, log, type Ctx } from './state';
+import { enemiesOf, hiddenFrom, occupied, squares, log, visibleEnemiesOf, type Ctx } from './state';
+import { canSee, concealed, coverNear, decoAt, HIDE_IN_BUSHES, inMap, LIGHTS, lineOfFire, movementCosts, TERRAIN, terrainAt } from './terrain';
+import { neighbours } from './grid';
+import { findHiddenFV, hideFV, silentMover } from './facing';
 import type { Combatant, Location, Pos, SlotWeapon } from './types';
 import { LOCATIONS, LOCATION_NAMES, mirror } from './types';
 
@@ -36,6 +39,8 @@ export interface AttackOption {
   exposed: Location | null;
   locations: LocOption[];
   wild: ClResult;
+  /** House rules: the "wild" attack is the standard attack (no penalty, random location); aiming costs −5. */
+  standard: boolean;
   techniques: TechniqueOption[];
   /** Hero manoeuvres available with this weapon (HH 812–864). */
   maneuvers: ManeuverOption[];
@@ -62,6 +67,12 @@ export interface ShotOption {
   targetName: string;
   weaponName: string;
   distanceM: number;
+  /** Maximum range in metres (the CL drops at ½ and ¾ of it). */
+  maxRangeM: number;
+  /** People standing in the line of fire (each 50% to take the missile, II 1296). */
+  inTheWay: string[];
+  /** …of whom on the shooter's side. */
+  friendsInTheWay: string[];
   random: ClResult;
   aimed: LocOption[];
 }
@@ -86,6 +97,16 @@ export interface ActionOptions {
   swordThrows: SwordThrowOption[];
   /** Spend the whole round psyching out the opponents (hero status, HH 866–902). */
   canIntimidate: boolean;
+  /**
+   * Take cover against shots this round (II 1307): only as the first thing in the round, when an enemy who acts
+   * later (lower initiative) can shoot at you. Uses every action. `behind`: something next to you to duck behind;
+   * `shooters`: who you're taking cover from. Normal SMI roll.
+   */
+  takeCover: { behind: string | null; smi: number; shooters: string[] } | null;
+  /** Search for hidden enemies (Finna dolda ting, one action): `fv` and how many are hidden from you. */
+  search: { fv: number; hidden: number } | null;
+  /** Hide: possible in bushes or out of sight of every enemy, with nobody in reach (null if not). */
+  hide: HideCheck | null;
   /** Hero points left (spend one to raise a roll one step). */
   heroPoints: number;
   /** Spells (null for non-casters, or when no general action is left). */
@@ -143,6 +164,12 @@ export type ActionChoice =
   | { kind: 'defensive' }
   | { kind: 'throwSword'; targetId: string; weapon: WeaponRef }
   | { kind: 'intimidate' }
+  /** Try to hide (Gömma sig): in bushes, or out of every enemy's sight. */
+  | { kind: 'hide' }
+  /** Att söka skydd (II 1307): at the start of the round, duck behind something or throw yourself down. */
+  | { kind: 'takeCover'; how: 'cover' | 'drop' }
+  /** Finna dolda ting: look for enemies hidden from you (one action). */
+  | { kind: 'search' }
   /** Start a spell (and release it at once if it takes a single action – then `target` is needed). */
   | { kind: 'cast'; spell: string; e: number; suicide?: boolean; target?: SpellTarget; heroPoint?: boolean }
   /** Spend another action preparing/casting the spell in progress. */
@@ -189,9 +216,9 @@ function swordThrowOptions(ctx: Ctx, c: Combatant): SwordThrowOption[] {
     if (!w || w.kind !== 'item' || w.fv < 21) continue;
     const isSword = w.def.group === 'sword1h' || ['greatSword', 'flamberge', 'bastardSword', 'nodachi'].includes(w.def.id);
     if (!isSword) continue;
-    for (const t of enemiesOf(ctx, c)) {
-      const d = squares(c.pos, t.pos);
-      if (d < 1 || d > 3) continue;
+    for (const t of visibleEnemiesOf(ctx, c)) {
+      const d = squares(c.pos, t.pos, ctx.state.grid);
+      if (d < 1 || d > 3 || !canSee(ctx.state.map, ctx.state.grid, c.pos, t.pos)) continue;
       out.push({ targetId: t.id, targetName: t.sheet.name, weapon: hand, weaponName: w.name, cl: attackCL(ctx, c, t, w, 'wild', { label: 'throw sword', value: -6 }, true) });
     }
   }
@@ -283,12 +310,14 @@ export function canAttackNow(ctx: Ctx, c: Combatant): string | null {
 
 export function meleeAttackOptions(ctx: Ctx, c: Combatant, onlyTarget?: Combatant): AttackOption[] {
   const out: AttackOption[] = [];
-  const targets = onlyTarget ? [onlyTarget] : enemiesOf(ctx, c);
+  const targets = onlyTarget ? [onlyTarget] : visibleEnemiesOf(ctx, c);
   const weapons = meleeWeapons(ctx, c);
   for (const t of targets) {
+    // A long weapon can't reach round a corner or through a wall.
+    if (!canSee(ctx.state.map, ctx.state.grid, c.pos, t.pos)) continue;
     for (const w of weapons) {
-      if (squares(c.pos, t.pos) > w.reach) continue;
-      const exposed = blottaFor(ctx, t, c);
+      if (squares(c.pos, t.pos, ctx.state.grid) > w.reach) continue;
+      const exposed = ctx.rules.houseRules ? null : blottaFor(ctx, t, c);
       const locations = LOCATIONS.map((l) => ({ location: l, exposed: l === exposed, cl: attackCL(ctx, c, t, w, l) }));
       out.push({
         targetId: t.id,
@@ -300,7 +329,9 @@ export function meleeAttackOptions(ctx: Ctx, c: Combatant, onlyTarget?: Combatan
         exposed,
         locations,
         wild: attackCL(ctx, c, t, w, 'wild'),
-        techniques: techniqueOptions(c, w),
+        standard: ctx.rules.houseRules,
+        // No blotta under the house rules, so Förutse blotta has nothing to work on.
+        techniques: techniqueOptions(c, w).filter((x) => !(ctx.rules.houseRules && x.id === 'predictOpening')),
         maneuvers: maneuverOptions(ctx, c, t, w),
       });
     }
@@ -308,16 +339,16 @@ export function meleeAttackOptions(ctx: Ctx, c: Combatant, onlyTarget?: Combatan
   return out;
 }
 
-function reachableSquares(ctx: Ctx, c: Combatant, max: number): Pos[] {
-  const out: Pos[] = [];
-  for (let dx = -max; dx <= max; dx++) {
-    for (let dy = -max; dy <= max; dy++) {
-      if (dx === 0 && dy === 0) continue;
-      const p = { x: c.pos.x + dx, y: c.pos.y + dy };
-      if (inBounds(ctx, p) && !occupied(ctx, p, c)) out.push(p);
-    }
-  }
-  return out;
+/** Free cells a fighter can walk to with `max` movement: around walls and enemies, bushes and rubble costing 2. */
+export function reachableSquares(ctx: Ctx, c: Combatant, max: number): Pos[] {
+  return moveCosts(ctx, c, max).cells().filter((r) => r.cost > 0 && !occupied(ctx, r.p, c)).map((r) => r.p);
+}
+
+/** Movement cost to every cell within `max` – enemies can't be walked through, allies can (but not stopped on). */
+export function moveCosts(ctx: Ctx, c: Combatant, max: number) {
+  const s = ctx.state;
+  const enemies = enemiesOf(ctx, c);
+  return movementCosts(s.map, s.grid, c.pos, max, (p) => enemies.some((e) => e.pos.x === p.x && e.pos.y === p.y));
 }
 
 /** Movement allowance for one Move action (§15.1, SIM-7). */
@@ -325,7 +356,9 @@ export function moveAllowance(ctx: Ctx, c: Combatant): number {
   const ff = currentFF(c, ctx.state.round);
   const half = Math.floor(ff / 2);
   const budget = c.attackedThisRound || c.shotThisRound ? half : ff;
-  return Math.max(0, Math.min(half, budget - c.movedThisRound));
+  // Sneaking (staying hidden) is at most half speed (I 2300) – unless Smyga is above 20 (HH 626).
+  const cap = c.hidden && !silentMover(c) ? Math.min(half, Math.max(1, Math.floor(half / 2))) : half;
+  return Math.max(0, Math.min(cap, budget - c.movedThisRound));
 }
 
 export function buildActionOptions(ctx: Ctx, c: Combatant): ActionOptions {
@@ -345,19 +378,24 @@ export function buildActionOptions(ctx: Ctx, c: Combatant): ActionOptions {
   const blockedShots: { targetName: string; reason: string }[] = [];
   const rw = rangedWeapon(c);
   if (rw && !attackBlock && usable('main')) {
-    for (const t of enemiesOf(ctx, c)) {
+    for (const t of visibleEnemiesOf(ctx, c)) {
       const check = checkRanged(ctx, c, t);
       if (!check.ok) {
         blockedShots.push({ targetName: t.sheet.name, reason: check.reason! });
         continue;
       }
+      const line = lineOfFire(ctx.state.map, ctx.state.grid, c.pos, t.pos);
+      const between = ctx.state.combatants.filter((x) => x !== c && x !== t && x.status === 'active' && line.some((p) => p.x === x.pos.x && p.y === x.pos.y));
       shots.push({
         targetId: t.id,
         targetName: t.sheet.name,
         weaponName: rw.def.name,
         distanceM: check.distanceM,
+        maxRangeM: check.maxRangeM,
+        inTheWay: between.map((x) => x.sheet.name),
+        friendsInTheWay: between.filter((x) => x.team === c.team).map((x) => x.sheet.name),
         random: rangedCL(ctx, c, t, null),
-        aimed: LOCATIONS.map((l) => ({ location: l, exposed: false, cl: rangedCL(ctx, c, t, l) })),
+        aimed: LOCATIONS.filter((l) => !(check.cover && COVERED_BY_LOW.includes(l))).map((l) => ({ location: l, exposed: false, cl: rangedCL(ctx, c, t, l) })),
       });
     }
   }
@@ -381,10 +419,25 @@ export function buildActionOptions(ctx: Ctx, c: Combatant): ActionOptions {
     .filter(() => general || hasHero(c, 'quickDraw'))
     .map(({ lo, index }) => ({ index, name: lo.name }));
 
-  const engaged = enemiesOf(ctx, c).filter((e) => squares(c.pos, e.pos) <= Math.max(maxReach(ctx, c), maxReach(ctx, e)));
+  const engaged = enemiesOf(ctx, c).filter((e) => squares(c.pos, e.pos, ctx.state.grid) <= Math.max(maxReach(ctx, c), maxReach(ctx, e)));
   const canDefensive =
     general && c.stance === 'normal' && noSlotsUsed && engaged.length > 0 && engaged.every((e) => c.initiative > e.initiative) && !onlyParry;
 
+  const hide = general && !onlyParry && !c.running && engaged.length === 0 ? hideCheck(ctx, c) : null;
+  // Shooters who act after `c` this round and could shoot at it.
+  const shooters =
+    ctx.state.opp === 1 && noSlotsUsed
+      ? visibleEnemiesOf(ctx, c).filter((e) => {
+          const w = rangedWeapon(e);
+          return e.initiative < c.initiative && !!w && (!w.def.reload || e.items[w.key].loaded) && !hiddenFrom(c, e) && canSee(ctx.state.map, ctx.state.grid, e.pos, c.pos);
+        })
+      : [];
+  const takeCover =
+    general && !onlyParry && !c.running && !c.casting && shooters.length > 0 && c.tookCover?.round !== r
+      ? { behind: coverNear(ctx.state.map, ctx.state.grid, c.pos), smi: effectiveSMI(c), shooters: shooters.map((e) => e.sheet.name) }
+      : null;
+  const hiddenEnemies = enemiesOf(ctx, c).filter((e) => hiddenFrom(e, c)).length;
+  const search = general && !onlyParry && !c.running && hiddenEnemies > 0 ? { fv: findHiddenFV(c).fv, hidden: hiddenEnemies } : null;
   const swordThrows = attackBlock ? [] : swordThrowOptions(ctx, c).filter((o) => usable(o.weapon));
   const canIntimidate =
     !!c.hero && general && noSlotsUsed && !onlyParry && !c.running && enemiesOf(ctx, c).some((e) => !c.hero!.psyched.includes(e.id));
@@ -405,10 +458,60 @@ export function buildActionOptions(ctx: Ctx, c: Combatant): ActionOptions {
     canDefensive,
     swordThrows,
     canIntimidate,
+    takeCover,
+    search,
+    hide,
     heroPoints: c.hero?.points ?? 0,
     magic,
     restrictions,
   };
+}
+
+export interface HideCheck {
+  fv: number;
+  cl: number;
+  note: string;
+  /** " in the bushes" / " out of sight". */
+  where: string;
+}
+
+/**
+ * Can `c` hide right now, and at what CL? Gömma sig (INT, I 2254) needs somewhere to be out of sight for a while –
+ * shadows, behind an obstacle, under a cart, in bushes – and no enemy within reach. The game master's modifier for
+ * the spot (the best one at hand):
+ *   out of every enemy's sight +3, under a cart +3, in bushes +2, behind a crate, barrel, table, stall or fence +1,
+ *   in the shadow of a wall, house, tree, boulder or pillar ±0, anywhere in darkness ±0;
+ * plus the light (dusk/torchlight +2, night +5).
+ */
+export function hideCheck(ctx: Ctx, c: Combatant): HideCheck | null {
+  // A fighter can hide again once someone has found it.
+  if (c.hidden && !c.spottedBy.length) return null;
+  const s = ctx.state;
+  const spot = hidingSpot(ctx, c);
+  if (!spot) return null;
+  const fv = hideFV(c);
+  if (fv <= 0) return null;
+  const light = LIGHTS[s.map.light].hide;
+  const cl = fv + spot.mod + light;
+  const notes = [spot.mod ? `${spot.mod > 0 ? '+' : ''}${spot.mod} ${spot.label}` : '', light ? `+${light} ${LIGHTS[s.map.light].name.toLowerCase()}` : ''].filter(Boolean);
+  return { fv, cl, note: notes.length ? ` (${fv} ${notes.join(', ')})` : '', where: ` ${spot.where}` };
+}
+
+/** The best place to hide right where `c` stands, if any. */
+export function hidingSpot(ctx: Ctx, c: Combatant): { where: string; label: string; mod: number } | null {
+  const s = ctx.state;
+  const options: { where: string; label: string; mod: number }[] = [];
+  if (!enemiesOf(ctx, c).some((e) => canSee(s.map, s.grid, e.pos, c.pos))) options.push({ where: 'out of sight', label: 'out of sight', mod: 3 });
+  if (concealed(s.map, c.pos)) options.push({ where: 'in the bushes', label: 'bushes', mod: HIDE_IN_BUSHES });
+  for (const n of neighbours(c.pos, s.grid)) {
+    const kind = terrainAt(s.map, n);
+    const deco = decoAt(s.map, n);
+    if (kind === 'low' && deco === 'cart') options.push({ where: 'under the cart', label: 'under a cart', mod: 3 });
+    else if (kind === 'low') options.push({ where: `behind the ${deco || 'obstacle'}`, label: `behind a ${deco || 'obstacle'}`, mod: 1 });
+    else if (TERRAIN[kind].blocksSight && inMap(s.map, n)) options.push({ where: `in the shadow of the ${TERRAIN[kind].name}`, label: 'shadow', mod: 0 });
+  }
+  if (s.map.light === 'dark') options.push({ where: 'in the darkness', label: 'darkness', mod: 0 });
+  return options.sort((a, b) => b.mod - a.mod)[0] ?? null;
 }
 
 function armsFor(c: Combatant, lo: { main: string | null; off: string | null }, round: number): boolean {
@@ -433,6 +536,9 @@ export function hasAnyOption(o: ActionOptions): boolean {
     o.canDefensive ||
     o.swordThrows.length > 0 ||
     o.canIntimidate ||
+    !!o.hide ||
+    !!o.takeCover ||
+    !!o.search ||
     !!o.magic?.spells.length ||
     !!(o.magic?.casting && !o.magic.casting.reactionOnly)
   );

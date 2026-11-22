@@ -1,7 +1,7 @@
 import { parseDice, rollDice } from './dice';
 import { armOfHand, heldItem, mainArm, offArm } from './character';
 import { applyDirectKp, hitFriend, setOut } from './damage';
-import { alliesOf, log, type Ctx } from './state';
+import { alliesOf, log, squares, type Ctx } from './state';
 import { lookup, RANDOM_MELEE } from '../data/tables';
 import type { ClScope, Combatant, Condition, ConditionKind, Effect, Location, RoundSpan, Slot, SlotWeapon, TableEntry } from './types';
 import { isArm, isLeg, LOCATION_NAMES } from './types';
@@ -118,7 +118,7 @@ function spanToRounds(ctx: Ctx, span: RoundSpan | { from: number; throughDice: s
   return { from: r + span.from, through: span.through === 'fight' ? FOREVER : r + span.through };
 }
 
-function addCondition(c: Combatant, cond: Condition): void {
+export function addCondition(c: Combatant, cond: Condition): void {
   c.conditions.push(cond);
 }
 
@@ -248,7 +248,7 @@ export function applyEffects(ctx: Ctx, c: Combatant, effects: Effect[], info: Ef
         break;
       }
       case 'hitFriend': {
-        const friend = alliesOf(ctx, c).find((a) => Math.max(Math.abs(a.pos.x - c.pos.x), Math.abs(a.pos.y - c.pos.y)) <= 1);
+        const friend = alliesOf(ctx, c).find((a) => squares(a.pos, c.pos, ctx.state.grid) <= 1);
         if (friend) hitFriend(ctx, c, friend);
         else log(ctx, 'No friend is close enough to be hit.', 'info', 2, c.id);
         break;

@@ -63,7 +63,7 @@ function targetValue(ctx: Ctx, c: Combatant, def: SpellDef, e: number, opt: Spel
       const radius = Math.floor(e / SQUARE_M);
       let value = 0;
       for (const v of ctx.state.combatants.filter((x) => x.status === 'active')) {
-        const d = squares(v.pos, t.pos);
+        const d = squares(v.pos, t.pos, ctx.state.grid);
         const falloff = def.kind === 'explosion' ? Math.max(0, d - radius) : d <= radius ? 0 : Infinity;
         if (falloff === Infinity || avg - falloff <= 0) continue;
         value += (v.team === c.team ? -1.5 : 1) * one(v, falloff);
@@ -109,7 +109,7 @@ function targetValue(ctx: Ctx, c: Combatant, def: SpellDef, e: number, opt: Spel
 }
 
 function inMelee(ctx: Ctx, c: Combatant): boolean {
-  return enemiesOf(ctx, c).some((e) => squares(c.pos, e.pos) <= Math.max(maxReach(ctx, e), 1));
+  return enemiesOf(ctx, c).some((e) => squares(c.pos, e.pos, ctx.state.grid) <= Math.max(maxReach(ctx, e), 1));
 }
 
 /**
@@ -122,7 +122,7 @@ function timeFactor(ctx: Ctx, c: Combatant, actions: number): number {
   const roundsToRelease = Math.floor((actions - 1) / perRound);
   let worst = 1;
   for (const e of enemiesOf(ctx, c)) {
-    const d = squares(c.pos, e.pos);
+    const d = squares(c.pos, e.pos, ctx.state.grid);
     const reach = Math.max(1, maxReach(ctx, e));
     const ff = currentFF(e, ctx.state.round);
     const shooter = ['projectile', 'thrown'].includes(heldItem(e, 'main')?.def.kind ?? '');
@@ -212,6 +212,6 @@ function threatened(ctx: Ctx, c: Combatant): boolean {
   return enemiesOf(ctx, c).some((e) => {
     if (rangedWeapon(e)) return true;
     const weapons = meleeWeapons(ctx, e);
-    return weapons.length > 0 && squares(c.pos, e.pos) <= Math.max(...weapons.map((w) => w.reach)) + 1;
+    return weapons.length > 0 && squares(c.pos, e.pos, ctx.state.grid) <= Math.max(...weapons.map((w) => w.reach)) + 1;
   });
 }

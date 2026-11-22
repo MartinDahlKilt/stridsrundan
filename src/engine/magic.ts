@@ -1,4 +1,5 @@
 import { armourDef } from '../data/armour';
+import { cellWord } from './grid';
 import { isIron, itemDef } from '../data/items';
 import { PROJECTILE_RESISTANCE, spellDef, type SpellDef } from '../data/spells';
 import { lookup, RANDOM_RANGED } from '../data/tables';
@@ -10,7 +11,8 @@ import { parseDice, rollDice } from './dice';
 import { availablePsy, spendPsy } from './psy';
 import { isSuccess, outcomeLabel, rollResistance, rollSkill, SG, type SkillRoll } from './skill';
 import { activeSpell } from './spellEffects';
-import { active, byId, enemiesOf, log, metres, SQUARE_M, squares, type Ctx } from './state';
+import { active, byId, log, metres, SQUARE_M, squares, visibleEnemiesOf, type Ctx } from './state';
+import { canSee } from './terrain';
 import type { Combatant, ItemDef, Location, MagicSchool } from './types';
 import { LOCATION_NAMES, mirror } from './types';
 
@@ -139,13 +141,13 @@ export function spellTargets(ctx: Ctx, c: Combatant, def: SpellDef): SpellTarget
     case 'self':
       return [{ target: {}, label: 'yourself' }];
     case 'enemy':
-      for (const e of enemiesOf(ctx, c)) {
-        if (squares(c.pos, e.pos) <= range) out.push({ target: { targetId: e.id }, label: `${e.sheet.name} (${metres(c.pos, e.pos)} m)` });
+      for (const e of visibleEnemiesOf(ctx, c)) {
+        if (squares(c.pos, e.pos, ctx.state.grid) <= range && canSee(ctx.state.map, ctx.state.grid, c.pos, e.pos)) out.push({ target: { targetId: e.id }, label: `${e.sheet.name} (${metres(c.pos, e.pos, ctx.state.grid)} m)` });
       }
       return out;
     case 'enemyItem':
-      for (const e of enemiesOf(ctx, c)) {
-        if (squares(c.pos, e.pos) > range) continue;
+      for (const e of visibleEnemiesOf(ctx, c)) {
+        if (squares(c.pos, e.pos, ctx.state.grid) > range || !canSee(ctx.state.map, ctx.state.grid, c.pos, e.pos)) continue;
         for (const hand of ['main', 'off'] as const) {
           const h = heldItem(e, hand);
           if (h && itemTargetable(def, h.def)) out.push({ target: { targetId: e.id, item: hand }, label: `${e.sheet.name}'s ${h.def.name}${h.state.bv !== null ? ` (BV ${h.state.bv})` : ''}` });
@@ -388,7 +390,10 @@ function resisted(ctx: Ctx, c: Combatant, d: Combatant, def: SpellDef, o: ApplyO
 }
 
 function areaVictims(ctx: Ctx, centre: Combatant, radiusSq: number): Combatant[] {
-  return ctx.state.combatants.filter((x) => active(x) && squares(x.pos, centre.pos) <= radiusSq);
+  // Walls shelter whoever is behind them.
+  return ctx.state.combatants.filter(
+    (x) => active(x) && squares(x.pos, centre.pos, ctx.state.grid) <= radiusSq && (x === centre || canSee(ctx.state.map, ctx.state.grid, centre.pos, x.pos)),
+  );
 }
 
 function rollSpellDice(ctx: Ctx, e: number, sides: number): { total: number; text: string } {
@@ -481,14 +486,14 @@ function spellDamage(ctx: Ctx, c: Combatant, def: SpellDef, e: number, centre: C
   const radius = spec.area ? Math.floor(e / SQUARE_M) : 0;
   // EXPLOSION hurts everybody on the field, one point less per square beyond the blast radius.
   const victims = def.kind === 'explosion' ? ctx.state.combatants.filter(active) : spec.area ? areaVictims(ctx, centre, radius) : [centre];
-  if (spec.area && def.kind !== 'explosion') log(ctx, `It strikes everything within ${e} m (${radius} square${radius === 1 ? '' : 's'}) of ${centre.sheet.name}.`, 'info', 2, c.id);
+  if (spec.area && def.kind !== 'explosion') log(ctx, `It strikes everything within ${e} m (${radius} ${cellWord(ctx.state.grid, radius)}) of ${centre.sheet.name}.`, 'info', 2, c.id);
   const hit: Combatant[] = [];
   for (const v of victims) {
     if (!active(v)) continue;
     if (resisted(ctx, c, v, def, o)) continue;
     hit.push(v);
     if (spec.flatPerE) {
-      const beyond = Math.max(0, squares(v.pos, centre.pos) - radius);
+      const beyond = Math.max(0, squares(v.pos, centre.pos, ctx.state.grid) - radius);
       const dmg = Math.max(0, spec.flatPerE * e - beyond);
       if (dmg <= 0) continue;
       applyTotalDamage(ctx, v, dmg, dmg, `${def.sv} ${spec.flatPerE}×E${e}${beyond ? ` − ${beyond} for distance` : ''} = ${dmg}`);

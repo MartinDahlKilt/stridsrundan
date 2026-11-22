@@ -12,14 +12,16 @@ export interface RaceDef {
   skillBonus?: Record<string, number>;
   /** Other traits, for the UI. */
   traits: string;
+  /** Mörkersyn: sees perfectly in the dark – no penalties for poor light. */
+  darkVision?: boolean;
 }
 
 export const RACES: RaceDef[] = [
   { id: 'human', name: 'Human', sv: 'Människa', mods: {}, sto: { min: 8, max: 18, normal: 13 }, traits: 'Suits every profession' },
   { id: 'elf', name: 'Elf', sv: 'Alv', mods: { STY: -1, SMI: 3, INT: 3, KAR: 2 }, sto: { min: 8, max: 14, normal: 11 }, skillBonus: { spotDanger: 4 }, traits: '+4 Upptäcka fara and Lyssna; movement +1' },
-  { id: 'dwarf', name: 'Dwarf', sv: 'Dvärg', mods: { STY: 3, FYS: 2, PSY: 2 }, sto: { min: 4, max: 9, normal: 7 }, traits: 'Perfect night vision, Geologi 5; movement −2' },
+  { id: 'dwarf', name: 'Dwarf', sv: 'Dvärg', mods: { STY: 3, FYS: 2, PSY: 2 }, sto: { min: 4, max: 9, normal: 7 }, darkVision: true, traits: 'Perfect night vision, Geologi 5; movement −2' },
   { id: 'halfelf', name: 'Half-elf', sv: 'Halvalv', mods: { SMI: 2, KAR: 1 }, sto: { min: 7, max: 16, normal: 12 }, skillBonus: { spotDanger: 2 }, traits: '+2 Upptäcka fara and Lyssna' },
-  { id: 'halfling', name: 'Halfling', sv: 'Halvlängdsman', mods: { STY: -4, FYS: 3, SMI: 3, PSY: 2 }, sto: { min: 3, max: 6, normal: 5 }, traits: '+4 Gömma sig; movement −2' },
+  { id: 'halfling', name: 'Halfling', sv: 'Halvlängdsman', mods: { STY: -4, FYS: 3, SMI: 3, PSY: 2 }, sto: { min: 3, max: 6, normal: 5 }, skillBonus: { hide: 4 }, traits: '+4 Gömma sig; movement −2' },
   {
     id: 'halforc',
     name: 'Half-orc',

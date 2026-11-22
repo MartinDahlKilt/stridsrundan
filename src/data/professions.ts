@@ -7,7 +7,7 @@ import type { Attribute, Profession } from '../engine/types';
  */
 
 /** Profession-list entries the editor knows about (beyond plain weapon skills). */
-export type ProfessionSkillKey = 'dagger' | 'staff' | 'twoWeapons' | 'martialArt' | 'fallTechnique' | 'drawWeapon' | 'techniques' | 'backstab';
+export type ProfessionSkillKey = 'dagger' | 'staff' | 'twoWeapons' | 'martialArt' | 'fallTechnique' | 'drawWeapon' | 'techniques' | 'backstab' | 'fightInDarkness';
 
 export interface ProfessionDef {
   id: Profession;
@@ -329,6 +329,13 @@ export const PROFESSIONS: ProfessionDef[] = [
     abilityInSim: false,
   },
 ];
+
+/** Strid i mörker (KH): a profession skill for every warrior profession, assassins, monks, thieves and rangers. */
+const FIGHT_IN_DARKNESS = new Set<Profession>([
+  'warrior', 'knight', 'barbarian', 'gladiator', 'warriorMonk', 'paladin', 'bountyHunter', 'soldier', 'swashbuckler', 'weaponmaster',
+  'samurai', 'ronin', 'kensai', 'budoka', 'ninja', 'assassin', 'monk', 'thief', 'ranger',
+]);
+for (const p of PROFESSIONS) if (FIGHT_IN_DARKNESS.has(p.id)) p.skills.push('fightInDarkness');
 
 export function professionDef(id: Profession): ProfessionDef | undefined {
   // The archmage preset is a magiker with a hero's status.

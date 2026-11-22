@@ -3,6 +3,7 @@ import { runCombat, type CombatGenerator } from './combat';
 import type { DecisionAnswer, DecisionRequest } from './requests';
 import type { RulesConfig } from './rules';
 import { byId, createCombat, type CombatantSetup, type Ctx } from './state';
+import type { BattleMap } from './terrain';
 
 /**
  * Drives a combat: answers AI decisions itself and stops when a human decision is needed.
@@ -16,8 +17,8 @@ export class CombatSession {
   pending: DecisionRequest | null = null;
   readonly answers: DecisionAnswer[] = [];
 
-  constructor(setups: CombatantSetup[], seed: number, rules: Partial<RulesConfig> = {}) {
-    this.ctx = createCombat(setups, seed, rules);
+  constructor(setups: CombatantSetup[], seed: number, rules: Partial<RulesConfig> = {}, map?: BattleMap) {
+    this.ctx = createCombat(setups, seed, rules, undefined, map);
     this.gen = runCombat(this.ctx);
   }
 
@@ -68,11 +69,12 @@ export class CombatSession {
 }
 
 /** Run a whole AI-vs-AI fight (headless simulations and tests). */
-export function simulate(setups: CombatantSetup[], seed: number, rules: Partial<RulesConfig> = {}): Ctx {
+export function simulate(setups: CombatantSetup[], seed: number, rules: Partial<RulesConfig> = {}, map?: BattleMap): Ctx {
   const s = new CombatSession(
     setups.map((x) => ({ ...x, controller: 'ai' as const })),
     seed,
     rules,
+    map,
   );
   s.advance();
   return s.ctx;

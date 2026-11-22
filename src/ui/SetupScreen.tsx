@@ -1,7 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PRESETS } from '../data/presets';
 import { DEFAULT_RULES, type RulesConfig } from '../engine/rules';
+import { cellWord, type Grid } from '../engine/grid';
+import { generateMap } from '../engine/mapgen';
 import { createCombat, placeFighters } from '../engine/state';
+import { DEFAULT_LIGHT, DEFAULT_MAP_SPEC, LIGHTS, MAP_PRESETS, MAP_SIZES, type BattleMap, type Light, type MapPreset, type MapSize, type MapSpec } from '../engine/terrain';
 import type { Pos } from '../engine/types';
 import { Battlefield } from './Battlefield';
 import type { FightConfig } from './App';
@@ -32,23 +35,39 @@ const SIDE_NAMES = ['A', 'B'];
 let nextKey = 1;
 const newKey = () => `f${nextKey++}-${Date.now().toString(36)}`;
 
-/** Give every fighter a square: the ones they have, the default line-up for the rest. */
-function withPositions(list: FighterSetup[]): FighterSetup[] {
-  const pos = placeFighters(list);
+/** Give every fighter a cell: the ones they have (if still walkable), the default line-up for the rest. */
+function withPositions(list: FighterSetup[], map: BattleMap, grid: Grid): FighterSetup[] {
+  const pos = placeFighters(list, map, grid);
   return list.map((f, i) => ({ ...f, pos: pos[i] }));
 }
 
+const randomSeed = () => Math.floor(Math.random() * 1e6);
+
 export function SetupScreen({ initial, customs, onCustomsChange, onStart }: Props) {
+  const [seed, setSeed] = useState<number>(initial?.seed ?? randomSeed());
+  const [rules, setRules] = useState<Partial<RulesConfig>>(initial?.rules ?? {});
+  const [mapSpec, setMapSpec] = useState<MapSpec>(initial?.map ?? { ...DEFAULT_MAP_SPEC, seed: randomSeed() });
+  const grid = { ...DEFAULT_RULES, ...rules }.grid;
+  // The layout, then the light on it – changing the light keeps everyone where they stand.
+  const layout = useMemo(() => generateMap({ preset: mapSpec.preset, size: mapSpec.size, seed: mapSpec.seed }, grid), [mapSpec.preset, mapSpec.size, mapSpec.seed, grid]);
+  const map = useMemo(() => ({ ...layout, light: mapSpec.light ?? DEFAULT_LIGHT[mapSpec.preset] }), [layout, mapSpec.light, mapSpec.preset]);
   const [fighters, setFighters] = useState<FighterSetup[]>(() =>
     withPositions(
       initial?.fighters ?? [
         { key: newKey(), presetId: 'knight', controller: 'human', team: 0 },
         { key: newKey(), presetId: 'barbarian', controller: 'ai', team: 1 },
       ],
+      map,
+      grid,
     ),
   );
-  const [seed, setSeed] = useState<number>(initial?.seed ?? Math.floor(Math.random() * 1e6));
-  const [rules, setRules] = useState<Partial<RulesConfig>>(initial?.rules ?? {});
+  // A new battlefield means a new line-up: the old cells may be inside a wall now.
+  const shownLayout = useRef(layout);
+  useEffect(() => {
+    if (shownLayout.current === layout) return;
+    shownLayout.current = layout;
+    setFighters((list) => withPositions(list.map((f) => ({ ...f, pos: undefined })), layout, grid));
+  }, [layout, grid]);
   const [pause, setPause] = useState(initial?.pauseAfterEachAction ?? false);
   const [selected, setSelected] = useState<string | null>(null);
   const r = { ...DEFAULT_RULES, ...rules };
@@ -61,7 +80,7 @@ export function SetupScreen({ initial, customs, onCustomsChange, onStart }: Prop
   const update = (key: string, patch: Partial<FighterSetup>) => setFighters(fighters.map((f) => (f.key === key ? { ...f, ...patch } : f)));
   const addFighter = (team: number) => {
     const last = [...fighters].reverse().find((f) => f.team === team);
-    setFighters(withPositions([...fighters, { key: newKey(), presetId: last?.presetId ?? 'mercenary', controller: 'ai', team }]));
+    setFighters(withPositions([...fighters, { key: newKey(), presetId: last?.presetId ?? 'mercenary', controller: 'ai', team }], map, grid));
   };
   const removeFighter = (key: string) => setFighters(fighters.filter((f) => f.key !== key));
 
@@ -87,8 +106,15 @@ export function SetupScreen({ initial, customs, onCustomsChange, onStart }: Prop
 
   // The battlefield as it will start: real combatants, so facing and names match the fight.
   const preview = useMemo(
-    () => createCombat(fighters.map((f) => ({ sheet: sheetOf(f.presetId), team: f.team, controller: f.controller, pos: f.pos, hidden: f.hidden })), 1, rules).state,
-    [fighters, customs, rules],
+    () =>
+      createCombat(
+        fighters.map((f) => ({ sheet: sheetOf(f.presetId), team: f.team, controller: f.controller, pos: f.pos, hidden: f.hidden })),
+        1,
+        rules,
+        undefined,
+        map,
+      ).state,
+    [fighters, customs, rules, map],
   );
   const selectedIndex = fighters.findIndex((f) => f.key === selected);
   const onSquare = (p: Pos) => {
@@ -108,7 +134,7 @@ export function SetupScreen({ initial, customs, onCustomsChange, onStart }: Prop
         <div className="ornament" aria-hidden="true">❦</div>
         <p className="muted">
           Detailed combat from <em>Krigarens Handbok</em>, with the basic rules where it is silent. Pick the fighters on each side and place them on the
-          battlefield – by default the sides start about 20 m apart.
+          battlefield – by default the sides start at opposite ends of it.
         </p>
       </header>
 
@@ -163,11 +189,12 @@ export function SetupScreen({ initial, customs, onCustomsChange, onStart }: Prop
                         Edit
                       </button>
                     )}
-                    {r.flanking && (
-                      <label className="small" title="Hidden from the enemy at the start: only a hidden fighter can steal up behind someone (Smyga vs Upptäcka fara). Lost once it attacks, shoots, casts or is attacked.">
-                        <input type="checkbox" checked={!!f.hidden} onChange={(e) => update(f.key, { hidden: e.target.checked })} /> Hidden
-                      </label>
-                    )}
+                    <label
+                      className="small"
+                      title="Hidden from the enemy at the start: an enemy can't target it until it finds it (the Search action, Finna dolda ting – it stays found until the fighter hides again or gets out of that enemy's sight). Moves at half speed while sneaking; only a hidden fighter can steal up behind someone (Smyga vs Upptäcka fara). Lost for everyone once it attacks, shoots, casts, runs or is attacked."
+                    >
+                      <input type="checkbox" checked={!!f.hidden} onChange={(e) => update(f.key, { hidden: e.target.checked })} /> Hidden
+                    </label>
                     <button className="small" onClick={() => setSelected(f.key === selected ? null : f.key)} title="Pick a starting square on the map below">
                       ◎ Place
                     </button>
@@ -190,10 +217,50 @@ export function SetupScreen({ initial, customs, onCustomsChange, onStart }: Prop
 
       <section className="setup-map sheet">
         <h3>Battlefield</h3>
+        <div className="map-options">
+          <label>
+            Setting{' '}
+            <select value={mapSpec.preset} onChange={(e) => setMapSpec({ preset: e.target.value as MapPreset, size: mapSpec.size, seed: randomSeed() })}>
+              {MAP_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Size{' '}
+            <select value={mapSpec.size} onChange={(e) => setMapSpec({ ...mapSpec, size: e.target.value as MapSize })}>
+              {(Object.keys(MAP_SIZES) as MapSize[]).map((k) => (
+                <option key={k} value={k}>
+                  {MAP_SIZES[k].name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label title="II 1343: dusk, moonlight or torchlight −5 CL on all attacks, darkness −15. Dwarves see in the dark; Strid i mörker helps. Poor light makes hiding easier (+2 / +5).">
+            Light{' '}
+            <select value={map.light} onChange={(e) => setMapSpec({ ...mapSpec, light: e.target.value as Light })}>
+              {(Object.keys(LIGHTS) as Light[]).map((k) => (
+                <option key={k} value={k}>
+                  {LIGHTS[k].name}
+                  {LIGHTS[k].attack ? ` (${LIGHTS[k].attack})` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="small" onClick={() => setMapSpec({ ...mapSpec, seed: randomSeed() })} title="Generate another layout for this setting">
+            New layout
+          </button>
+        </div>
+        <p className="muted small">
+          {MAP_PRESETS.find((p) => p.id === mapSpec.preset)?.description} Walls, houses and trees block movement and line of sight; anything next to a fighter can be ducked behind
+          when shot at; bushes make hiding easier.
+        </p>
         <p className="muted small">
           {selectedIndex >= 0
-            ? `Click a square to place ${preview.combatants[selectedIndex].sheet.name}, or the token again to cancel.`
-            : 'Click a token, then a square, to move a fighter. The notch on each token shows which way it faces – everyone starts facing the nearest enemy.'}
+            ? `Click a ${cellWord(grid)} to place ${preview.combatants[selectedIndex].sheet.name}, or the token again to cancel. The lines show what it can see.`
+            : `Click a token, then a ${cellWord(grid)}, to move a fighter. The notch on each token shows which way it faces – everyone starts facing the nearest enemy.`}
         </p>
         <Battlefield
           state={preview}
@@ -203,7 +270,7 @@ export function SetupScreen({ initial, customs, onCustomsChange, onStart }: Prop
           anySquare
           activeId={selectedIndex >= 0 ? preview.combatants[selectedIndex].id : null}
         />
-        <button className="small" onClick={() => setFighters(withPositions(fighters.map((f) => ({ ...f, pos: undefined }))))}>
+        <button className="small" onClick={() => setFighters(withPositions(fighters.map((f) => ({ ...f, pos: undefined })), map, grid))}>
           Reset to the default line-up
         </button>
       </section>
@@ -222,9 +289,26 @@ export function SetupScreen({ initial, customs, onCustomsChange, onStart }: Prop
         <details>
           <summary>Rules options</summary>
           <label>
+            <input type="checkbox" checked={r.terrainCover} onChange={(e) => setRules({ ...rules, terrainCover: e.target.checked })} />{' '}
+            <strong>Terrain cover</strong> (house rule): a crate, barrel, table, stall or fence right in front of the target covers its legs and costs the shooter
+            −3 CL; shooting into or through bushes −3. Without it, cover only comes from taking cover (Att söka skydd).
+          </label>
+          <label>
+            <input type="checkbox" checked={r.grid === 'hex'} onChange={(e) => setRules({ ...rules, grid: e.target.checked ? 'hex' : 'square' })} />{' '}
+            <strong>Hex battlefield</strong>: move and measure on 1.5 m hexes, so every step is the same length. Off = squares as in the rules, where a
+            diagonal step covers more ground.
+          </label>
+          <label>
+            <input type="checkbox" checked={r.houseRules} onChange={(e) => setRules({ ...rules, houseRules: e.target.checked })} /> <strong>House rules</strong>: no
+            blotta – a standard attack has the same CL against every location and the hit location is rolled; aiming at a chosen location costs −5 CL. A
+            perfect hit can be stopped by a normal parry. Special hit: a hit on 5 or less followed by a 2nd roll ≤ FV deals maximum damage (armour still
+            absorbs).
+          </label>
+          <label className={r.houseRules ? 'muted' : ''}>
             <input
               type="checkbox"
-              checked={r.perfectAttackParry === 'perfectParry'}
+              disabled={r.houseRules}
+              checked={r.houseRules || r.perfectAttackParry === 'perfectParry'}
               onChange={(e) => setRules({ ...rules, perfectAttackParry: e.target.checked ? 'perfectParry' : 'never' })}
             />{' '}
             House rule: a perfect parry can stop a perfect attack
@@ -272,7 +356,7 @@ export function SetupScreen({ initial, customs, onCustomsChange, onStart }: Prop
           </label>
         </details>
         {noHuman && <p className="warn">Every fighter is computer-controlled – you will watch the fight.</p>}
-        <button className="seal" onClick={() => onStart({ fighters, seed, rules, pauseAfterEachAction: pause })}>
+        <button className="seal" onClick={() => onStart({ fighters, seed, rules, map: mapSpec, pauseAfterEachAction: pause })}>
           ⚔ To battle! ⚔
         </button>
       </section>

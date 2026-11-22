@@ -1,4 +1,6 @@
 import type { DiceExpr } from './dice';
+import type { Grid } from './grid';
+import type { BattleMap } from './terrain';
 
 // ---------------------------------------------------------------------------
 // Body
@@ -94,7 +96,9 @@ export type SpecialAbility =
   | 'tough' // Stryktålig: KP x1.5
   | 'findOpening' // Finna blotta: opponent abs KP −3
   | 'quickPerception' // Snabb uppfattningsförmåga: +5 parry, parry projectiles
-  | 'extremelyFast'; // Extremt snabb: +1 action
+  | 'extremelyFast' // Extremt snabb: +1 action
+  | 'goodArcher' // God bågskytt (KH 498): +25% range with all projectile weapons
+  | 'nightVision'; // Nattsyn (KH 494): no penalty in dim light (not in pitch darkness)
 
 /** Hero abilities from Hjältarnas Handbok (HH 279–495) that matter in a fight. */
 export type HeroAbility =
@@ -522,6 +526,28 @@ export interface Combatant {
    * (Smyga vs Upptäcka fara). Lost for good once the fighter attacks, shoots, casts or is attacked.
    */
   hidden: boolean;
+  /**
+   * How well it is hidden: the differensvärde of its Gömma sig roll (or Smyga, when it moved). Whoever searches
+   * rolls Finna dolda ting at −this (I 2254).
+   */
+  hideDiff: number;
+  /**
+   * The current Smyga roll while sneaking: one per minute (12 rounds, I 2300). `noticeRound`: last round watched.
+   * `fastRound`/`fastDiff`: Smyga above 20 sneaking faster than half speed this round (HH 626, −5).
+   */
+  sneak: { round: number; diff: number; noticeRound: number; fastRound?: number; fastDiff?: number } | null;
+  /**
+   * Enemies (ids) who have found it since it last hid: to them it is visible until it hides again or they lose
+   * sight of it.
+   */
+  spottedBy: string[];
+  /**
+   * Took cover at the start of this round (Att söka skydd, II 1307) – ranged attacks only. 'cover': they lose
+   * `value` (the SMI differensvärde); 'drop': −1 per square between shooter and target. `value` < 0: the roll failed.
+   */
+  tookCover: { round: number; how: 'cover' | 'drop'; value: number } | null;
+  /** Round in which a Strid i mörker roll succeeded (no penalty in dim light, −5 in the dark). */
+  darkFightingRound: number;
 }
 
 export interface LogEntry {
@@ -539,6 +565,10 @@ export interface CombatState {
   opp: number;
   width: number;
   height: number;
+  /** Board layout (rules option `grid`). */
+  grid: Grid;
+  /** Terrain (walls, trees, cover …). */
+  map: BattleMap;
   combatants: Combatant[];
   log: LogEntry[];
   nextLogId: number;

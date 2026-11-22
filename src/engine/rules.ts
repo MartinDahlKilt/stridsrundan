@@ -1,3 +1,4 @@
+import type { Grid } from './grid';
 import type { CharacterSheet } from './types';
 
 /**
@@ -32,6 +33,25 @@ export interface RulesConfig {
    * (Smyga vs Upptäcka fara) can't be parried, and Anfall bakifrån / the assassin's backstab apply.
    */
   flanking: boolean;
+  /**
+   * House rules (optional):
+   * - no blotta: a standard melee attack has the same CL against every location and the hit location is rolled
+   *   on the melee location table; aiming at a chosen location costs −5 CL;
+   * - a perfect hit can be stopped by a normal successful parry;
+   * - special hit: a successful attack roll of 5 or less followed by a 2nd roll ≤ FV deals maximum damage,
+   *   but armour still absorbs.
+   */
+  houseRules: boolean;
+  /**
+   * Battlefield layout. 'square' is the rules as written (1.5 m squares, a diagonal step counts as one, so moving
+   * diagonally covers more ground); 'hex' (house option, default) uses 1.5 m hexes so every step is the same length.
+   */
+  grid: Grid;
+  /**
+   * House rule: terrain gives cover by itself – a low obstacle right in front of the target covers its legs and
+   * costs −3 CL, bushes −3 CL. (The books only have taking cover as an action, which always applies.)
+   */
+  terrainCover: boolean;
   /** Safety stop. */
   maxRounds: number;
 }
@@ -46,6 +66,9 @@ export const DEFAULT_RULES: RulesConfig = {
   heroicFumble: 'hh',
   favouredByGodsChance: 25,
   flanking: true,
+  houseRules: false,
+  grid: 'hex',
+  terrainCover: true,
   maxRounds: 60,
 };
 

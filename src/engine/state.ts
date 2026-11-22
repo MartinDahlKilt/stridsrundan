@@ -1,6 +1,8 @@
 import { createCombatant } from './character';
 import type { Dice } from './dice';
 import { faceTowards } from './facing';
+import { CELL_M, cellDistance, cellMetres, type Grid } from './grid';
+import { canSee, emptyMap, movementCosts, walkable, type BattleMap } from './terrain';
 import { seededDice } from './dice';
 import { applyRuleOptions, DEFAULT_RULES, type RulesConfig } from './rules';
 import type { CharacterSheet, Combatant, CombatState, LogEntry, Pos } from './types';
@@ -26,13 +28,15 @@ export const FIELD_HEIGHT = 11;
 
 /** Squares between the two sides at the start: 13 squares × 1.5 m ≈ 20 m. */
 export const START_DISTANCE_SQUARES = 13;
-export const SQUARE_M = 1.5;
+export const SQUARE_M = CELL_M;
 
-export function createCombat(setups: CombatantSetup[], seed: number, rules: Partial<RulesConfig> = {}, dice?: Dice): Ctx {
+/** `map`: the battlefield (see mapgen.ts); without one, the bare 21 × 11 field. */
+export function createCombat(setups: CombatantSetup[], seed: number, rules: Partial<RulesConfig> = {}, dice?: Dice, map?: BattleMap): Ctx {
   const merged: RulesConfig = { ...DEFAULT_RULES, ...rules };
-  const width = FIELD_WIDTH;
-  const height = FIELD_HEIGHT;
-  const positions = placeFighters(setups);
+  const field = map ?? emptyMap(FIELD_WIDTH, FIELD_HEIGHT, START_DISTANCE_SQUARES);
+  const width = field.width;
+  const height = field.height;
+  const positions = placeFighters(setups, field, merged.grid);
   // Two fighters with the same name get numbers, so the log stays readable.
   const names = setups.map((s) => s.sheet.name);
   const combatants: Combatant[] = setups.map((s, n) => {
@@ -40,19 +44,21 @@ export function createCombat(setups: CombatantSetup[], seed: number, rules: Part
     const nth = names.slice(0, n + 1).filter((x) => x === s.sheet.name).length;
     const sheet = same > 1 ? { ...s.sheet, name: `${s.sheet.name} ${nth}` } : s.sheet;
     const c = createCombatant(applyRuleOptions(sheet, merged), `c${n}`, s.team, s.controller, positions[n]);
-    c.hidden = !!s.hidden && merged.flanking; // hiding only matters for attacks from behind
+    c.hidden = !!s.hidden;
     return c;
   });
   // Everyone starts facing the nearest enemy.
   for (const c of combatants) {
-    const foes = combatants.filter((o) => o.team !== c.team).sort((p, q) => squares(c.pos, p.pos) - squares(c.pos, q.pos));
-    if (foes[0]) faceTowards(c, foes[0].pos);
+    const foes = combatants.filter((o) => o.team !== c.team).sort((p, q) => squares(c.pos, p.pos, merged.grid) - squares(c.pos, q.pos, merged.grid));
+    if (foes[0]) faceTowards(c, foes[0].pos, merged.grid);
   }
   const state: CombatState = {
     round: 0,
     opp: 0,
     width,
     height,
+    grid: merged.grid,
+    map: field,
     combatants,
     log: [],
     nextLogId: 1,
@@ -67,15 +73,15 @@ export function createCombat(setups: CombatantSetup[], seed: number, rules: Part
 }
 
 /**
- * Starting squares: the given ones where valid and free, else the default line-up – side A in one column and
- * side B in another, 13 squares (about 20 m) apart, spreading out from the middle row.
+ * Starting cells: the given ones where valid (on the board, walkable) and free, else the default line-up – each side
+ * in a column at its starting point (13 cells, about 20 m, apart on the bare field), filling from the middle row
+ * outwards and then the column behind. Only cells a few steps' walk from the starting point count, so a side
+ * doesn't end up split across a wall.
  */
-export function placeFighters(setups: { team: number; pos?: Pos }[]): Pos[] {
-  const startX = Math.floor((FIELD_WIDTH - 1 - START_DISTANCE_SQUARES) / 2);
-  const mid = Math.floor(FIELD_HEIGHT / 2);
+export function placeFighters(setups: { team: number; pos?: Pos }[], map: BattleMap = emptyMap(FIELD_WIDTH, FIELD_HEIGHT, START_DISTANCE_SQUARES), grid: Grid = 'hex'): Pos[] {
   const taken = new Set<string>();
   const key = (p: Pos) => `${p.x},${p.y}`;
-  const valid = (p: Pos) => p.x >= 0 && p.y >= 0 && p.x < FIELD_WIDTH && p.y < FIELD_HEIGHT && !taken.has(key(p));
+  const valid = (p: Pos) => walkable(map, p) && !taken.has(key(p));
   const out: (Pos | null)[] = setups.map((s) => {
     if (s.pos && valid(s.pos)) {
       taken.add(key(s.pos));
@@ -83,20 +89,28 @@ export function placeFighters(setups: { team: number; pos?: Pos }[]): Pos[] {
     }
     return null;
   });
+  const centre = { x: Math.floor(map.width / 2), y: Math.floor(map.height / 2) };
+  const lineUp = new Map<number, Pos[]>();
+  const candidates = (team: number): Pos[] => {
+    if (lineUp.has(team)) return lineUp.get(team)!;
+    const anchor = team === 0 || team === 1 ? map.starts[team] : centre;
+    const back = team === 0 ? -1 : 1;
+    const rowRank = (y: number) => (y === anchor.y ? 0 : y < anchor.y ? 2 * (anchor.y - y) - 1 : 2 * (y - anchor.y));
+    const colRank = (x: number) => ((x - anchor.x) * back >= 0 ? (x - anchor.x) * back : 1000 - (x - anchor.x) * back);
+    const reach = movementCosts(map, grid, anchor, 1000).cells();
+    const near = reach.filter((r) => r.cost <= 6).map((r) => r.p);
+    const far = reach.filter((r) => r.cost > 6).sort((p, q) => p.cost - q.cost).map((r) => r.p);
+    near.sort((p, q) => colRank(p.x) - colRank(q.x) || rowRank(p.y) - rowRank(q.y));
+    const list = walkable(map, anchor) ? [...near, ...far] : [];
+    lineUp.set(team, list);
+    return list;
+  };
   setups.forEach((s, i) => {
     if (out[i]) return;
-    const col = s.team === 0 ? startX : s.team === 1 ? startX + START_DISTANCE_SQUARES : mid;
-    // Fill the column from the middle row outwards (5, 4, 6, 3, …), then the next column behind it.
-    search: for (let j = 0; j < FIELD_WIDTH; j++) {
-      const x = col + j * (s.team === 0 ? -1 : 1);
-      for (let k = 0; k < FIELD_HEIGHT; k++) {
-        const p = { x, y: mid + (k % 2 === 0 ? k / 2 : -(k + 1) / 2) };
-        if (valid(p)) {
-          taken.add(key(p));
-          out[i] = p;
-          break search;
-        }
-      }
+    const p = candidates(s.team).find(valid);
+    if (p) {
+      taken.add(key(p));
+      out[i] = { ...p };
     }
   });
   return out.map((p) => p ?? { x: 0, y: 0 });
@@ -135,13 +149,13 @@ export function alliesOf(ctx: Ctx, c: Combatant): Combatant[] {
   return ctx.state.combatants.filter((o) => o.team === c.team && o.id !== c.id && active(o));
 }
 
-/** Grid distance in squares (diagonal steps count as one). */
-export function squares(a: Pos, b: Pos): number {
-  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+/** Grid distance in steps (squares: diagonal steps count as one; hexes: every step is the same length). */
+export function squares(a: Pos, b: Pos, grid: Grid): number {
+  return cellDistance(a, b, grid);
 }
 
-export function metres(a: Pos, b: Pos): number {
-  return Math.round(Math.hypot(a.x - b.x, a.y - b.y) * SQUARE_M * 10) / 10;
+export function metres(a: Pos, b: Pos, grid: Grid): number {
+  return cellMetres(a, b, grid);
 }
 
 export function occupied(ctx: Ctx, p: Pos, except?: Combatant): boolean {
@@ -150,4 +164,26 @@ export function occupied(ctx: Ctx, p: Pos, except?: Combatant): boolean {
 
 export function inBounds(ctx: Ctx, p: Pos): boolean {
   return p.x >= 0 && p.y >= 0 && p.x < ctx.state.width && p.y < ctx.state.height;
+}
+
+/** Is `h` hidden from `observer`? Hidden, and not found by that observer since it last hid. */
+export function hiddenFrom(h: Combatant, observer: Combatant): boolean {
+  return h.hidden && !h.spottedBy.includes(observer.id);
+}
+
+/** Enemies `c` knows about: ones hidden from it can't be targeted, approached or shot at. */
+export function visibleEnemiesOf(ctx: Ctx, c: Combatant): Combatant[] {
+  return enemiesOf(ctx, c).filter((e) => !hiddenFrom(e, c));
+}
+
+/** Whoever has lost sight of a hidden fighter loses track of it (it is hidden from them again). */
+export function updateAwareness(ctx: Ctx): void {
+  const { map, grid, combatants } = ctx.state;
+  for (const h of combatants) {
+    if (!h.hidden || !h.spottedBy.length) continue;
+    h.spottedBy = h.spottedBy.filter((id) => {
+      const o = combatants.find((x) => x.id === id);
+      return !!o && o.status === 'active' && canSee(map, grid, o.pos, h.pos);
+    });
+  }
 }

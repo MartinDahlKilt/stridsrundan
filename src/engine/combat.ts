@@ -1,10 +1,13 @@
 import { FUMBLE_TABLES, FUMBLE_TABLE_NAMES, type FumbleTable } from '../data/fumbles';
 import { lookup, RANDOM_MELEE, RANDOM_RANGED } from '../data/tables';
 import { buildSlots, countActions, effectiveSMI, hasHero, heldItem, hasMartialTechnique, offArm } from './character';
-import { attackCL, checkRanged, describeCl, rangedCL, rangedWeapon, resolveWeapon, type ClResult, type Mod, type ParryContext, type ResolvedWeapon } from './cl';
-import { activeConditions, applyEffects, dropHand, FOREVER, freeSlots, pruneConditions, rollTable, slotFor, slotWeaponOf, useCondition } from './conditions';
+import { attackCL, checkRanged, coverName, COVERED_BY_LOW, describeCl, rangedCL, rangedWeapon, resolveWeapon, type ClResult, type Mod, type ParryContext, type ResolvedWeapon } from './cl';
+import { activeConditions, applyEffects, currentFF, dropHand, FOREVER, freeSlots, pruneConditions, rollTable, slotFor, slotWeaponOf, useCondition } from './conditions';
 import { applyHit, checkThresholds, rollDamage, setOut, type DamageOptions } from './damage';
-import { attackDirection, backstabWeapon, faceTowards, sneakFV, spotDangerCL } from './facing';
+import { cellWord } from './grid';
+import { needsDarkFighting } from './light';
+import { canSee, concealed, coverNear, lineOfFire, missilePath } from './terrain';
+import { alwaysSearching, attackDirection, silentMover, backstabWeapon, faceTowards, findHiddenFV, sneakFV, spotDangerCL } from './facing';
 import { spellDef } from '../data/spells';
 import { spellSkill } from './cl';
 import { castActions, castShieldParry, releaseSpell, tickBurns, whirlwindDeflects } from './magic';
@@ -21,6 +24,8 @@ import {
   meleeParryOptions,
   pairKey,
   parrySlotWeapon,
+  hideCheck,
+  moveCosts,
   rangedParryOptions,
   techniqueFV,
   TECHNIQUES,
@@ -32,8 +37,8 @@ import {
   type ParryOption,
 } from './requests';
 import { isSuccess, outcomeLabel, raiseOutcome, rollResistance, rollSkill, SG, type SkillRoll } from './skill';
-import { active, byId, enemiesOf, inBounds, log, occupied, SQUARE_M, squares, type Ctx } from './state';
-import type { Combatant, Location, Pos, SlotWeapon } from './types';
+import { active, byId, enemiesOf, hiddenFrom, inBounds, log, occupied, SQUARE_M, squares, updateAwareness, type Ctx } from './state';
+import type { Combatant, ItemDef, Location, Pos, SlotWeapon } from './types';
 import { LOCATION_NAMES, mirror } from './types';
 
 export type Yielded = { type: 'decision'; request: DecisionRequest } | { type: 'pause' };
@@ -46,7 +51,7 @@ export type CombatGenerator = Generator<Yielded, void, any>;
 export function* runCombat(ctx: Ctx): CombatGenerator {
   const s = ctx.state;
   const teams = [...new Set(s.combatants.map((c) => c.team))].map((t) => s.combatants.filter((c) => c.team === t).map((c) => c.sheet.name).join(', '));
-  const gap = Math.min(...s.combatants.flatMap((a) => s.combatants.filter((b) => b.team !== a.team).map((b) => squares(a.pos, b.pos))));
+  const gap = Math.min(...s.combatants.flatMap((a) => s.combatants.filter((b) => b.team !== a.team).map((b) => squares(a.pos, b.pos, ctx.state.grid))));
   log(ctx, `The fight begins. ${teams.join(' vs ')} – about ${Math.round(gap * SQUARE_M)} m apart.`, 'heading', 0);
   while (!s.over) {
     s.round += 1;
@@ -110,6 +115,11 @@ function startRound(ctx: Ctx): void {
     c.pendingLostActions = Math.max(0, lost);
   }
 
+  for (const c of s.combatants) if (active(c) && needsDarkFighting(ctx, c)) darkFightingRoll(ctx, c);
+  updateAwareness(ctx);
+  // Finna dolda ting above 20 is always on (HH 594): a free search every round.
+  for (const c of s.combatants) if (active(c) && alwaysSearching(c)) search(ctx, c, true);
+
   // Initiative: 1T10 + SMI + modifiers (§5). Ties re-roll to settle the order.
   const rolled: { c: Combatant; total: number; tie: number; text: string }[] = [];
   for (const c of s.combatants.filter(active)) {
@@ -139,10 +149,10 @@ function startRound(ctx: Ctx): void {
     1,
   );
 
-  // Everyone already in melee rolls for blotta at the start of the round (§6.2).
-  for (const a of s.combatants.filter(active)) {
+  // Everyone already in melee rolls for blotta at the start of the round (§6.2) – not under the house rules.
+  for (const a of ctx.rules.houseRules ? [] : s.combatants.filter(active)) {
     for (const d of enemiesOf(ctx, a)) {
-      if (squares(a.pos, d.pos) <= Math.max(maxReach(ctx, a), maxReach(ctx, d))) blottaFor(ctx, d, a);
+      if (squares(a.pos, d.pos, ctx.state.grid) <= Math.max(maxReach(ctx, a), maxReach(ctx, d))) blottaFor(ctx, d, a);
     }
   }
 }
@@ -189,12 +199,15 @@ function useSlot(ctx: Ctx, c: Combatant, weapon: SlotWeapon | null = null, earli
 const KEEPS_SPELL = new Set<ActionChoice['kind']>(['castContinue', 'castRelease', 'hold', 'defensive']);
 
 /** Actions that give a hidden fighter away (melee attacks reveal it themselves, after the Smyga check). */
-const REVEALS = new Set<ActionChoice['kind']>(['cast', 'castRelease', 'shoot', 'throwSword']);
+const REVEALS = new Set<ActionChoice['kind']>(['cast', 'castRelease', 'shoot', 'throwSword', 'run']);
 
 /** A hidden fighter has been seen: from now on it can't steal up behind anyone (combat-rules §7.5). */
 function reveal(ctx: Ctx, c: Combatant): void {
   if (!c.hidden) return;
   c.hidden = false;
+  c.hideDiff = 0;
+  c.sneak = null;
+  c.spottedBy = [];
   log(ctx, `${c.sheet.name} is no longer hidden.`, 'info', 1, c.id);
 }
 
@@ -304,6 +317,28 @@ function* performAction(ctx: Ctx, c: Combatant, choice: ActionChoice): CombatGen
       log(ctx, `${c.sheet.name} fights defensively this round: acts last, must parry, leaves no exposed area.`, 'info', 1, c.id);
       return;
     }
+    case 'takeCover':
+      takeCover(ctx, c, choice.how);
+      return;
+    case 'hide': {
+      useSlot(ctx, c);
+      const h = hideCheck(ctx, c);
+      if (!h) return;
+      const roll = rollSkill(ctx.dice, h.fv, h.cl, ctx.rules.heroicFumble);
+      const ok = isSuccess(roll.outcome);
+      log(ctx, `${c.sheet.name} tries to hide${h.where}: Gömma sig CL ${h.cl}${h.note}, rolled ${roll.rolls.join('→')} – ${ok ? 'hidden from the enemy.' : outcomeLabel(roll.outcome)}.`, 'roll', 1, c.id);
+      if (ok) {
+        c.hidden = true;
+        c.hideDiff = Math.max(0, h.cl - roll.roll);
+        c.spottedBy = [];
+        c.sneak = null;
+      }
+      return;
+    }
+    case 'search':
+      useSlot(ctx, c);
+      search(ctx, c);
+      return;
     case 'intimidate': {
       for (const sl of c.slots) if (!sl.lost) sl.used = true;
       if (c.hero) c.hero.psyching = true;
@@ -321,23 +356,28 @@ function* performAction(ctx: Ctx, c: Combatant, choice: ActionChoice): CombatGen
 
 function* doMove(ctx: Ctx, c: Combatant, to: Pos, run: boolean): CombatGenerator {
   if (!inBounds(ctx, to) || occupied(ctx, to, c)) return;
-  const dist = squares(c.pos, to);
+  // The walk around walls and through bushes, not the straight line.
+  const dist = moveCosts(ctx, c, 4 * squares(c.pos, to, ctx.state.grid) + 4).cost(to);
+  if (dist === Infinity) return;
   const enemies = enemiesOf(ctx, c);
-  const inReachBefore = new Map(enemies.map((e) => [e.id, squares(c.pos, e.pos) <= maxReach(ctx, e)]));
+  const inReachBefore = new Map(enemies.map((e) => [e.id, squares(c.pos, e.pos, ctx.state.grid) <= maxReach(ctx, e)]));
   const from = c.pos;
   c.pos = { ...to };
   c.movedThisRound += dist;
   // Turn to the nearest enemy close by, else the way you went.
-  const near = enemies.filter((e) => squares(c.pos, e.pos) <= 3).sort((x, y) => squares(c.pos, x.pos) - squares(c.pos, y.pos))[0];
-  faceTowards(c, near ? near.pos : { x: 2 * to.x - from.x, y: 2 * to.y - from.y });
-  log(ctx, `${c.sheet.name} ${run ? 'runs' : 'moves'} ${dist} square${dist === 1 ? '' : 's'} (${(dist * 1.5).toFixed(1)} m).`, 'info', 1, c.id);
+  const near = enemies.filter((e) => squares(c.pos, e.pos, ctx.state.grid) <= 3).sort((x, y) => squares(c.pos, x.pos, ctx.state.grid) - squares(c.pos, y.pos, ctx.state.grid))[0];
+  if (near) faceTowards(c, near.pos, ctx.state.grid);
+  else faceTowards(c, to, ctx.state.grid, from);
+  log(ctx, `${c.sheet.name} ${run ? 'runs' : c.hidden ? 'sneaks' : 'moves'} ${dist} ${cellWord(ctx.state.grid, dist)} (${(dist * SQUARE_M).toFixed(1)} m).`, 'info', 1, c.id);
+  if (c.hidden && !run) sneakMove(ctx, c);
+  updateAwareness(ctx);
 
   if (!ctx.rules.longerWeaponStrikesFirst) return;
   const moverReach = maxReach(ctx, c);
   for (const e of enemies) {
-    if (!active(e) || !active(c)) continue;
+    if (!active(e) || !active(c) || hiddenFrom(c, e)) continue; // nobody strikes at what they can't see
     const eReach = maxReach(ctx, e);
-    if (inReachBefore.get(e.id) || squares(c.pos, e.pos) > eReach || eReach <= moverReach) continue;
+    if (inReachBefore.get(e.id) || squares(c.pos, e.pos, ctx.state.grid) > eReach || eReach <= moverReach) continue;
     if (!canAct(ctx, e) || canAttackNow(ctx, e) || !e.slots.some((s) => !s.used && !s.lost && s.opp >= ctx.state.opp)) continue;
     const options = meleeAttackOptions(ctx, e, c).filter((o) => o.reach > moverReach);
     if (!options.length) continue;
@@ -396,6 +436,21 @@ function rollAttack(ctx: Ctx, w: ResolvedWeapon, cl: ClResult): SkillRoll {
   return roll;
 }
 
+/**
+ * House rules special hit: a successful attack roll of 5 or less, confirmed by a 2nd roll ≤ FV, deals maximum
+ * damage (armour still absorbs). A 1 whose perfect confirmation failed has already failed this confirmation.
+ */
+function specialHit(ctx: Ctx, roll: SkillRoll): boolean {
+  if (!ctx.rules.houseRules || roll.outcome !== 'success' || roll.roll < 1 || roll.roll > 5) return false;
+  if (roll.rolls.length > 1) return roll.rolls[1] <= roll.fv;
+  const second = ctx.dice.d(20);
+  roll.rolls.push(second);
+  return second <= roll.fv;
+}
+
+/** Whether a perfect attack can still be parried: house rules – by any successful parry; otherwise per SIM-5. */
+const perfectParryable = (ctx: Ctx) => ctx.rules.houseRules || ctx.rules.perfectAttackParry === 'perfectParry';
+
 function autoOutcome(ctx: Ctx, a: Combatant, d: Combatant): { outcome: 'failure' | 'success' | null; noParry: boolean; why: string } {
   const r = ctx.state.round;
   const fail = activeConditions(a, r, 'autoFail')[0] ?? activeConditions(a, r, 'missNext')[0];
@@ -418,17 +473,17 @@ const MANEUVER_FV = { double: 21, triple: 31, lightning: 24, heroPainStrike: 23,
 function* meleeAttack(ctx: Ctx, a: Combatant, choice: AttackChoice, extras: AttackExtras): CombatGenerator {
   const d = byId(ctx, choice.targetId);
   const w = resolveWeapon(a, choice.weapon);
-  if (!w || !active(d) || squares(a.pos, d.pos) > w.reach) {
+  if (!w || !active(d) || squares(a.pos, d.pos, ctx.state.grid) > w.reach) {
     log(ctx, `${a.sheet.name}'s attack is no longer possible.`, 'info', 1, a.id);
     return;
   }
   a.attackedThisRound = true;
   a.aimBonus = 0;
   // Coming from behind: does the defender notice the attacker? Then the attacker turns to strike.
-  const unaware = ctx.rules.flanking && attackDirection(d, a.pos) === 'rear' ? sneakCheck(ctx, a, d) : false;
+  const unaware = ctx.rules.flanking && attackDirection(d, a.pos, ctx.state.grid) === 'rear' ? sneakCheck(ctx, a, d) : false;
   reveal(ctx, a);
   reveal(ctx, d);
-  faceTowards(a, d.pos);
+  faceTowards(a, d.pos, ctx.state.grid);
   const loc = choice.location;
   const exposed = loc !== 'wild' && d.stance !== 'defensive' && d.blotta[a.id] === loc;
   const m = choice.maneuver;
@@ -494,13 +549,108 @@ interface StrikeOpts {
 }
 
 /**
+ * Searching (Finna dolda ting, I 2229/2254): one action. For every enemy hidden from the searcher whose spot it can
+ * see, roll Finna dolda ting minus the hider's differensvärde. A find holds until the hider hides again or the
+ * searcher loses sight of it.
+ */
+function search(ctx: Ctx, c: Combatant, alwaysOn = false): void {
+  const s = ctx.state;
+  const fh = findHiddenFV(c);
+  const hidden = enemiesOf(ctx, c).filter((h) => hiddenFrom(h, c) && canSee(s.map, s.grid, c.pos, h.pos));
+  if (!hidden.length) {
+    if (!alwaysOn) log(ctx, `${c.sheet.name} searches the surroundings (Finna dolda ting) – and finds nothing.`, 'info', 1, c.id);
+    return;
+  }
+  if (alwaysOn) log(ctx, `${c.sheet.name} keeps an eye out (Finna dolda ting ${fh.fv} is always on, HH 594).`, 'info', 2, c.id);
+  for (const h of hidden) {
+    const cl = fh.fv - h.hideDiff;
+    const roll = cl > 0 ? rollSkill(ctx.dice, fh.fv, cl, ctx.rules.heroicFumble) : null;
+    const found = !!roll && isSuccess(roll.outcome);
+    log(
+      ctx,
+      `${c.sheet.name} searches: Finna dolda ting ${fh.fv}${fh.note} − ${h.hideDiff} = CL ${cl}${roll ? `, rolled ${roll.rolls.join('→')}` : ''} – ${found ? `finds ${h.sheet.name}!` : 'nothing.'}`,
+      found ? 'hit' : 'roll',
+      1,
+      c.id,
+    );
+    if (found) h.spottedBy.push(c.id);
+  }
+}
+
+/** Strid i mörker (KH): a success means no penalty in dim light and −5 in the dark, this round. */
+function darkFightingRoll(ctx: Ctx, c: Combatant): void {
+  const fv = c.sheet.skills.fightInDarkness ?? 0;
+  const roll = rollSkill(ctx.dice, fv, fv, ctx.rules.heroicFumble);
+  const ok = isSuccess(roll.outcome);
+  if (ok) c.darkFightingRound = ctx.state.round;
+  log(ctx, `${c.sheet.name}: Strid i mörker ${fv}, rolled ${roll.rolls.join('→')} – ${ok ? 'fights as well as in daylight' : 'no help this round'}.`, 'roll', 2, c.id);
+}
+
+/**
+ * A hidden fighter on the move sneaks (Smyga, I 2300): one Smyga roll a minute (12 rounds); failing it, whoever can
+ * see the spot hears it. Each round it moves, every enemy who can see it and hasn't found it yet rolls Upptäcka fara
+ * minus the differensvärde; those who succeed have found it.
+ * Once out in the open – no bushes and in someone's sight – it is only as well hidden as it sneaked.
+ */
+function sneakMove(ctx: Ctx, c: Combatant): void {
+  const s = ctx.state;
+  // Smyga above 20 (HH 626): faster than half speed this round – a fresh Smyga roll at −5 for the round.
+  const fast = silentMover(c) && c.movedThisRound > Math.floor(currentFF(c, s.round) / 2);
+  const freshRoll = !c.sneak || s.round - c.sneak.round >= ROUNDS_PER_MINUTE || (fast && c.sneak.fastRound !== s.round);
+  if (freshRoll) {
+    const sn = sneakFV(c);
+    const cl = fast ? sn.fv - 5 : sn.fv;
+    const roll = rollSkill(ctx.dice, sn.fv, cl, ctx.rules.heroicFumble);
+    const what = fast ? `sneaks at full speed: Smyga ${sn.fv}${sn.note} −5 = CL ${cl}` : `sneaks: Smyga ${sn.fv}${sn.note}`;
+    if (!isSuccess(roll.outcome)) {
+      // Heard: everyone who can see the spot knows where it is.
+      const heardBy = enemiesOf(ctx, c).filter((e) => hiddenFrom(c, e) && canSee(s.map, s.grid, e.pos, c.pos));
+      log(ctx, `${c.sheet.name} ${what}, rolled ${roll.rolls.join('→')} – ${outcomeLabel(roll.outcome)}${heardBy.length ? `, and ${heardBy.map((e) => e.sheet.name).join(', ')} hear${heardBy.length === 1 ? 's' : ''} it` : ''}.`, 'roll', 1, c.id);
+      c.sneak = null;
+      c.spottedBy.push(...heardBy.map((e) => e.id));
+      return;
+    }
+    const diff = Math.max(0, cl - roll.roll);
+    if (fast && c.sneak) {
+      // The minute's roll still stands for slow sneaking; this one counts for this round only.
+      c.sneak.fastRound = s.round;
+      c.sneak.fastDiff = diff;
+      c.sneak.noticeRound = 0; // moving faster: anyone watching gets a fresh chance to notice
+    } else {
+      c.sneak = { round: s.round, diff, noticeRound: 0, ...(fast ? { fastRound: s.round, fastDiff: diff } : {}) };
+    }
+    log(ctx, `${c.sheet.name} ${what}, rolled ${roll.rolls.join('→')} (difference ${diff}${fast ? ', this round' : ', good for a minute'}).`, 'roll', 2, c.id);
+  }
+  const sk = c.sneak!;
+  const diff = sk.fastRound === s.round ? sk.fastDiff ?? 0 : sk.diff;
+  if (sk.noticeRound !== s.round) {
+    sk.noticeRound = s.round;
+    for (const e of enemiesOf(ctx, c)) {
+      if (!hiddenFrom(c, e) || !canSee(s.map, s.grid, e.pos, c.pos)) continue;
+      const sd = spotDangerCL(e);
+      const cl = Math.max(sd.floor, sd.fv - diff);
+      if (cl <= 0) continue;
+      const spot = rollSkill(ctx.dice, sd.fv, cl, ctx.rules.heroicFumble);
+      if (!isSuccess(spot.outcome)) continue;
+      log(ctx, `${e.sheet.name} notices ${c.sheet.name} moving: Upptäcka fara ${sd.fv}${sd.note} − ${diff} = CL ${cl}, rolled ${spot.rolls.join('→')}.`, 'roll', 1, e.id);
+      c.spottedBy.push(e.id);
+    }
+  }
+  const seen = enemiesOf(ctx, c).some((e) => canSee(s.map, s.grid, e.pos, c.pos));
+  if (seen && !concealed(s.map, c.pos)) c.hideDiff = Math.min(c.hideDiff, diff);
+}
+
+/** 1 minute = 12 SR (II 1145). */
+const ROUNDS_PER_MINUTE = 12;
+
+/**
  * Anfall bakifrån (II 1738–1756): the attacker rolls Smyga; on a success the defender rolls Upptäcka fara at
  * −(the attacker's differensvärde). Failing that, the defender hasn't noticed the attacker and can't parry.
  * 🔧 SIM-28: only a fighter that has been hidden since the start can sneak – once the enemy has seen it
  * (it has attacked, shot, cast or been attacked), it can't choose to steal up behind anyone.
  */
 function sneakCheck(ctx: Ctx, a: Combatant, d: Combatant): boolean {
-  if (!a.hidden) return false;
+  if (!hiddenFrom(a, d)) return false; // it knows where you are
   const sn = sneakFV(a);
   if (sn.fv <= 0) return false;
   const sneak = rollSkill(ctx.dice, sn.fv, sn.fv, ctx.rules.heroicFumble);
@@ -535,17 +685,21 @@ function* strike(ctx: Ctx, a: Combatant, d: Combatant, w: ResolvedWeapon, choice
   const pk = pairKey(a, d);
   if (!s.engaged.includes(pk)) s.engaged.push(pk);
 
-  const target = loc === 'wild' ? 'a wild swing' : `the ${LOCATION_NAMES[loc].toLowerCase()}${o.exposed ? ' (exposed)' : ''}`;
+  const target = loc === 'wild' ? (ctx.rules.houseRules ? 'a random location (standard attack)' : 'a wild swing') : `the ${LOCATION_NAMES[loc].toLowerCase()}${o.exposed ? ' (exposed)' : ''}`;
   const auto = autoOutcome(ctx, a, d);
   let roll: SkillRoll;
+  let special = false;
+  let singleRoll = false;
   if (auto.outcome) {
     roll = { fv: cl.fv, cl: cl.cl, rolls: [], roll: 0, outcome: auto.outcome };
     log(ctx, `${a.sheet.name} attacks ${d.sheet.name} with ${w.name} at ${target}: automatic ${auto.outcome} (${auto.why}).`, auto.outcome === 'success' ? 'roll' : 'miss', 1, a.id);
   } else {
     roll = rollAttack(ctx, w, cl);
+    singleRoll = roll.rolls.length === 1;
+    special = specialHit(ctx, roll);
     log(
       ctx,
-      `${a.sheet.name} attacks ${d.sheet.name} with ${w.name} at ${target}: ${describeCl(cl)}${o.techNotes.length ? ` [${o.techNotes.join('; ')}]` : ''}; rolled ${roll.rolls.join('→')} – ${outcomeLabel(roll.outcome)}.`,
+      `${a.sheet.name} attacks ${d.sheet.name} with ${w.name} at ${target}: ${describeCl(cl)}${o.techNotes.length ? ` [${o.techNotes.join('; ')}]` : ''}; rolled ${roll.rolls.join('→')} – ${special ? 'SPECIAL' : outcomeLabel(roll.outcome)}.`,
       roll.outcome === 'fumble' ? 'fumble' : isSuccess(roll.outcome) ? 'roll' : 'miss',
       1,
       a.id,
@@ -567,7 +721,7 @@ function* strike(ctx: Ctx, a: Combatant, d: Combatant, w: ResolvedWeapon, choice
   const perfect = roll.outcome === 'perfect';
   const margin = Math.max(0, cl.cl - roll.roll);
   const pc: ParryContext = {
-    wild: loc === 'wild',
+    wild: loc === 'wild' && !ctx.rules.houseRules,
     chain: w.kind === 'item' && !!w.def.chain,
     feint: o.techs.includes('feint'),
     kneeStrike: o.techs.includes('kneeStrike'),
@@ -578,7 +732,7 @@ function* strike(ctx: Ctx, a: Combatant, d: Combatant, w: ResolvedWeapon, choice
 
   let parryRoll: SkillRoll | null = null;
   let parryOpt: ParryOption | null = null;
-  const parryAllowed = !auto.noParry && !o.unaware && (!perfect || ctx.rules.perfectAttackParry === 'perfectParry');
+  const parryAllowed = !auto.noParry && !o.unaware && (!perfect || perfectParryable(ctx));
   if (parryAllowed) {
     const options = meleeParryOptions(ctx, d, a, w, pc);
     if (options.length) {
@@ -591,7 +745,7 @@ function* strike(ctx: Ctx, a: Combatant, d: Combatant, w: ResolvedWeapon, choice
         // SKÖLD: the casting roll is the parry; success parries automatically (§22.6).
         const src = options[pa.index].source as Extract<ParryOption['source'], { kind: 'spell' }>;
         useSlot(ctx, d, null);
-        const stopped = castShieldParry(ctx, d, src.e, src.prepared, pa.heroPoint ? (r) => spendHeroPoint(ctx, d, r) : undefined, perfect);
+        const stopped = castShieldParry(ctx, d, src.e, src.prepared, pa.heroPoint ? (r) => spendHeroPoint(ctx, d, r) : undefined, perfect && !ctx.rules.houseRules);
         if (stopped) return;
         if (!active(d)) return;
       } else if (pa.index !== null && options[pa.index]) {
@@ -622,7 +776,7 @@ function* strike(ctx: Ctx, a: Combatant, d: Combatant, w: ResolvedWeapon, choice
   const location: Location = loc === 'wild' ? randomLocation(ctx, d, RANDOM_MELEE) : loc;
   const dmgOptions: DamageOptions & { extraKp: number } = {
     melee: true,
-    max: perfect || o.techs.includes('killingBlow'),
+    max: perfect || special || o.techs.includes('killingBlow'),
     maxSpOnly: o.techs.includes('painStrike'),
     extraKp: (o.techs.includes('strike') ? 2 : 0) + (o.techs.includes('lunge') ? 1 : 0),
     extraSp: (o.techs.includes('strike') ? 2 : 0) + (o.techs.includes('lunge') ? 1 : 0),
@@ -637,7 +791,7 @@ function* strike(ctx: Ctx, a: Combatant, d: Combatant, w: ResolvedWeapon, choice
   }
 
   if (parryRoll && parryOpt) {
-    if (perfect && parryRoll.outcome !== 'perfect') {
+    if (perfect && parryRoll.outcome !== 'perfect' && !ctx.rules.houseRules) {
       log(ctx, 'Only a perfect parry can stop a perfect attack.', 'info', 2);
     } else if (parryRoll.outcome === 'perfect') {
       log(ctx, `${d.sheet.name}'s perfect parry stops the attack cleanly.`, 'miss', 2, d.id);
@@ -685,7 +839,8 @@ function* strike(ctx: Ctx, a: Combatant, d: Combatant, w: ResolvedWeapon, choice
   const power = !dmgOptions.max ? yield* offerPowerStrike(ctx, a, d) : false;
   const dmg = rollDamage(ctx, a, w, { ...dmgOptions, max: dmgOptions.max || power });
   if (perfect) log(ctx, `PERFECT HIT – maximum damage, armour doesn't absorb.`, 'critical', 2, a.id);
-  yield* applyHit(ctx, { attacker: a, defender: d, location, dmg, perfect, exactRoll: roll.roll === cl.cl && roll.rolls.length === 1, weaponDef, interactive: true });
+  else if (special) log(ctx, `SPECIAL HIT – maximum damage, armour still absorbs.`, 'critical', 2, a.id);
+  yield* applyHit(ctx, { attacker: a, defender: d, location, dmg, perfect, exactRoll: roll.roll === cl.cl && singleRoll, weaponDef, interactive: true });
   yield* afterHit(ctx, a, d, o.techs, m);
 }
 
@@ -742,29 +897,31 @@ function* breakWeapon(ctx: Ctx, a: Combatant, d: Combatant, w: ResolvedWeapon): 
 /** Throw the sword (HH 848): up to 3 squares, −6 CL, normal damage, random location. */
 function* throwSword(ctx: Ctx, a: Combatant, targetId: string, hand: 'main' | 'off'): CombatGenerator {
   const d = byId(ctx, targetId);
-  faceTowards(a, d.pos);
+  faceTowards(a, d.pos, ctx.state.grid);
   const w = resolveWeapon(a, hand);
-  if (!w || w.kind !== 'item' || !active(d) || squares(a.pos, d.pos) > 3) return;
+  if (!w || w.kind !== 'item' || !active(d) || squares(a.pos, d.pos, ctx.state.grid) > 3 || !canSee(ctx.state.map, ctx.state.grid, a.pos, d.pos)) return;
   a.attackedThisRound = true;
   const cl = attackCL(ctx, a, d, w, 'wild', { label: 'throw sword', value: -6 }, true);
   for (const cond of cl.consumes) useCondition(cond);
   a.items[w.key].status = 'thrown';
   a.hands[hand] = null;
   const roll = rollAttack(ctx, w, cl);
-  log(ctx, `${a.sheet.name} hurls the ${w.def.name} at ${d.sheet.name}: ${describeCl(cl)}; rolled ${roll.rolls.join('→')} – ${outcomeLabel(roll.outcome)}.`, isSuccess(roll.outcome) ? 'roll' : 'miss', 1, a.id);
+  const special = specialHit(ctx, roll);
+  log(ctx, `${a.sheet.name} hurls the ${w.def.name} at ${d.sheet.name}: ${describeCl(cl)}; rolled ${roll.rolls.join('→')} – ${special ? 'SPECIAL' : outcomeLabel(roll.outcome)}.`, isSuccess(roll.outcome) ? 'roll' : 'miss', 1, a.id);
   if (roll.outcome === 'fumble') return fumble(ctx, a, 'ranged');
   if (!isSuccess(roll.outcome)) return;
   const perfect = roll.outcome === 'perfect';
   if (whirlwindDeflects(ctx, d, w.def)) return;
   const location = randomLocation(ctx, d, RANDOM_RANGED);
   const options = rangedParryOptions(ctx, d, a, true);
-  if (!perfect && options.length) {
+  if ((!perfect || ctx.rules.houseRules) && options.length) {
     const summary: AttackSummary = { attackerName: a.sheet.name, weaponName: w.def.name, location, cl: cl.cl, roll: roll.roll, outcome: roll.outcome, ranged: true };
     const answer: ParryAnswer = yield { type: 'decision', request: { kind: 'parry', actorId: d.id, attackerId: a.id, attack: summary, options, mustParry: false, heroPoints: d.hero?.points ?? 0 } };
     if (yield* missileParry(ctx, d, answer, options)) return;
     if (!active(d)) return;
   }
-  const dmg = rollDamage(ctx, a, w, { melee: false, max: perfect });
+  const dmg = rollDamage(ctx, a, w, { melee: false, max: perfect || special });
+  if (special && !perfect) log(ctx, `SPECIAL HIT – maximum damage, armour still absorbs.`, 'critical', 2, a.id);
   yield* applyHit(ctx, { attacker: a, defender: d, location, dmg, perfect, exactRoll: false, weaponDef: w.def, interactive: true });
   yield* lastStand(ctx, d);
 }
@@ -779,15 +936,15 @@ function randomLocation(ctx: Ctx, d: Combatant, table: typeof RANDOM_MELEE): Loc
 // ---------------------------------------------------------------------------
 
 function* rangedAttack(ctx: Ctx, a: Combatant, targetId: string, aimedAt: Location | null): CombatGenerator {
-  const d = byId(ctx, targetId);
-  faceTowards(a, d.pos);
+  const intended = byId(ctx, targetId);
+  faceTowards(a, intended.pos, ctx.state.grid);
   const w = rangedWeapon(a);
-  const check = checkRanged(ctx, a, d);
-  if (!w || !check.ok || !active(d)) {
+  const check = checkRanged(ctx, a, intended);
+  if (!w || !check.ok || !active(intended)) {
     log(ctx, `${a.sheet.name} can't shoot: ${check.reason ?? 'no target'}.`, 'info', 1, a.id);
     return;
   }
-  const cl = rangedCL(ctx, a, d, aimedAt);
+  const cl = rangedCL(ctx, a, intended, aimedAt);
   for (const cond of cl.consumes) useCondition(cond);
   a.shotThisRound = true;
   a.aimBonus = 0;
@@ -808,33 +965,56 @@ function* rangedAttack(ctx: Ctx, a: Combatant, targetId: string, aimedAt: Locati
 
   const verb = thrown ? 'throws' : 'shoots';
   const target = aimedAt ? `the ${LOCATION_NAMES[aimedAt].toLowerCase()}` : 'the body';
+  // Someone standing in the line of fire may take the missile instead (II 1296: about 50%).
+  let d = intended;
+  for (const p of peopleInTheWay(ctx, a, intended)) {
+    const r = ctx.dice.d(100);
+    if (r > 50) continue;
+    log(ctx, `${p.sheet.name} is in the line of fire (1T100: ${r} ≤ 50) – the ${w.def.name} flies at ${p.sheet.name} instead.`, 'status', 1, a.id);
+    d = p;
+    break;
+  }
+  const redirected = d !== intended;
   const auto = autoOutcome(ctx, a, d);
   let roll: SkillRoll;
+  let special = false;
+  let singleRoll = false;
   if (auto.outcome) {
     roll = { fv: cl.fv, cl: cl.cl, rolls: [], roll: 0, outcome: auto.outcome };
     log(ctx, `${a.sheet.name} ${verb} the ${w.def.name} at ${d.sheet.name}: automatic ${auto.outcome} (${auto.why}).`, 'roll', 1, a.id);
   } else {
     roll = rollSkill(ctx.dice, cl.fv, cl.cl, ctx.rules.heroicFumble);
+    singleRoll = roll.rolls.length === 1;
+    special = specialHit(ctx, roll);
     log(
       ctx,
-      `${a.sheet.name} ${verb} the ${w.def.name} at ${d.sheet.name} (${target}, ${check.distanceM} m): ${describeCl(cl)}; rolled ${roll.rolls.join('→')} – ${outcomeLabel(roll.outcome)}.`,
+      `${a.sheet.name} ${verb} the ${w.def.name} at ${d.sheet.name} (${target}, ${check.distanceM} m): ${describeCl(cl)}; rolled ${roll.rolls.join('→')} – ${special ? 'SPECIAL' : outcomeLabel(roll.outcome)}.`,
       roll.outcome === 'fumble' ? 'fumble' : isSuccess(roll.outcome) ? 'roll' : 'miss',
       1,
       a.id,
     );
   }
   if (roll.outcome === 'fumble') return fumble(ctx, a, 'ranged');
-  if (roll.outcome === 'failure') return;
+  if (roll.outcome === 'failure') {
+    yield* strayMissile(ctx, a, w.def, d, check.maxRangeM);
+    return;
+  }
 
   const perfect = roll.outcome === 'perfect';
   if (whirlwindDeflects(ctx, d, w.def)) return;
-  const location = aimedAt ?? randomLocation(ctx, d, RANDOM_RANGED);
-  const dmg = rollDamage(ctx, a, { kind: 'ranged', def: w.def }, { melee: false, max: perfect });
+  const location = (redirected ? null : aimedAt) ?? randomLocation(ctx, d, RANDOM_RANGED);
+  if (!redirected && check.cover && COVERED_BY_LOW.includes(location)) {
+    log(ctx, `The ${w.def.name} would have struck the ${LOCATION_NAMES[location].toLowerCase()}, but hits ${coverName(check.cover)} in front of ${d.sheet.name} instead.`, 'miss', 2, d.id);
+    return;
+  }
+  const dmg = rollDamage(ctx, a, { kind: 'ranged', def: w.def }, { melee: false, max: perfect || special });
+  // House rules: a perfect shot can be stopped like any other.
+  const parryable = !perfect || ctx.rules.houseRules;
 
   // A shield facing the shooter catches projectiles aimed at the parts it covers (§16, SIM-9).
   const shield = heldItem(d, 'off');
-  const shieldFacing = !ctx.rules.flanking || attackDirection(d, a.pos) !== 'rear';
-  if (!perfect && shieldFacing && shield && shield.def.kind === 'shield' && shield.def.sty <= d.sheet.attributes.STY && coversLocation(d, shield.def.covers ?? [], location)) {
+  const shieldFacing = !ctx.rules.flanking || attackDirection(d, a.pos, ctx.state.grid) !== 'rear';
+  if (parryable && shieldFacing && shield && shield.def.kind === 'shield' && shield.def.sty <= d.sheet.attributes.STY && coversLocation(d, shield.def.covers ?? [], location)) {
     log(ctx, `The ${w.def.name} strikes ${d.sheet.name}'s ${shield.def.name}, which covers the ${LOCATION_NAMES[location].toLowerCase()}.`, 'miss', 2, d.id);
     if (shield.state.bv !== null && dmg.kp > shield.state.bv) {
       shield.state.bv -= 1;
@@ -844,7 +1024,7 @@ function* rangedAttack(ctx: Ctx, a: Combatant, targetId: string, aimedAt: Locati
     return;
   }
 
-  if (!perfect) {
+  if (parryable) {
     const options = rangedParryOptions(ctx, d, a, thrown);
     if (options.length) {
       const summary: AttackSummary = { attackerName: a.sheet.name, weaponName: w.def.name, location, cl: cl.cl, roll: roll.roll, outcome: roll.outcome, ranged: true };
@@ -854,8 +1034,72 @@ function* rangedAttack(ctx: Ctx, a: Combatant, targetId: string, aimedAt: Locati
   }
   if (!active(d)) return;
   if (perfect) log(ctx, `PERFECT HIT – maximum damage, armour doesn't absorb.`, 'critical', 2, a.id);
-  yield* applyHit(ctx, { attacker: a, defender: d, location, dmg, perfect, exactRoll: roll.roll === cl.cl && roll.rolls.length === 1, weaponDef: w.def, pv: w.def.pv, interactive: true });
+  else if (special) log(ctx, `SPECIAL HIT – maximum damage, armour still absorbs.`, 'critical', 2, a.id);
+  yield* applyHit(ctx, { attacker: a, defender: d, location, dmg, perfect, exactRoll: roll.roll === cl.cl && singleRoll, weaponDef: w.def, pv: w.def.pv, interactive: true });
   yield* lastStand(ctx, d);
+}
+
+/** Everyone standing between shooter and target, nearest the shooter first. */
+function peopleInTheWay(ctx: Ctx, a: Combatant, d: Combatant): Combatant[] {
+  const { map, grid } = ctx.state;
+  const line = lineOfFire(map, grid, a.pos, d.pos);
+  const out: Combatant[] = [];
+  for (const p of line) {
+    const c = ctx.state.combatants.find((x) => x !== a && x !== d && active(x) && x.pos.x === p.x && x.pos.y === p.y);
+    if (c) out.push(c);
+  }
+  return out;
+}
+
+/**
+ * A missile that misses flies on (III 2624–2629): 50% further than the target, within the weapon's range, along a
+ * one-cell-wide path. Everyone in it, in turn, is hit on 1T100 ≤ their STO.
+ */
+function* strayMissile(ctx: Ctx, a: Combatant, def: ItemDef, missed: Combatant, maxRangeM: number): CombatGenerator {
+  const { map, grid } = ctx.state;
+  for (const p of missilePath(map, grid, a.pos, missed.pos, maxRangeM)) {
+    const v = ctx.state.combatants.find((x) => x !== a && active(x) && x.pos.x === p.x && x.pos.y === p.y);
+    if (!v) continue;
+    const sto = v.sheet.attributes.STO;
+    const r = ctx.dice.d(100);
+    if (r > sto) {
+      log(ctx, `The ${def.name} flies past ${v.sheet.name} (1T100: ${r} > STO ${sto}).`, 'miss', 2, v.id);
+      continue;
+    }
+    const location = randomLocation(ctx, v, RANDOM_RANGED);
+    log(ctx, `The stray ${def.name} hits ${v.sheet.name} (1T100: ${r} ≤ STO ${sto}) in the ${LOCATION_NAMES[location].toLowerCase()}!`, 'hit', 1, v.id);
+    reveal(ctx, v);
+    const dmg = rollDamage(ctx, a, { kind: 'ranged', def }, { melee: false });
+    yield* applyHit(ctx, { attacker: a, defender: v, location, dmg, perfect: false, exactRoll: false, weaponDef: def, pv: def.pv, interactive: true });
+    yield* lastStand(ctx, v);
+    return;
+  }
+}
+
+/**
+ * Att söka skydd (II 1307–1329): at the start of the round, before a shooter who acts later, duck behind something
+ * next to you or throw yourself down. Normal SMI roll; it takes all the round's actions and only helps against
+ * ranged attacks.
+ */
+function takeCover(ctx: Ctx, d: Combatant, how: 'cover' | 'drop'): void {
+  const r = ctx.state.round;
+  const behind = coverNear(ctx.state.map, ctx.state.grid, d.pos);
+  if (how === 'cover' && !behind) return;
+  for (const sl of d.slots) sl.used = true;
+  const smi = effectiveSMI(d);
+  const roll = rollSkill(ctx.dice, smi, smi, ctx.rules.heroicFumble);
+  if (!isSuccess(roll.outcome)) {
+    d.tookCover = { round: r, how, value: -1 };
+    log(ctx, `${d.sheet.name} tries to take cover: SMI ${smi}, rolled ${roll.rolls.join('→')} – too slow.`, 'roll', 1, d.id);
+  } else if (how === 'cover') {
+    const diff = Math.max(0, smi - roll.roll);
+    d.tookCover = { round: r, how, value: diff };
+    log(ctx, `${d.sheet.name} ducks behind the ${behind}: SMI ${smi}, rolled ${roll.rolls.join('→')} – shots at it this round get −${diff} CL.`, 'roll', 1, d.id);
+  } else {
+    d.tookCover = { round: r, how, value: 0 };
+    log(ctx, `${d.sheet.name} throws itself to the ground: SMI ${smi}, rolled ${roll.rolls.join('→')} – shots at it this round get −1 per square between.`, 'roll', 1, d.id);
+  }
+  log(ctx, `${d.sheet.name} can do nothing more this round.`, 'status', 2, d.id);
 }
 
 /** Parrying a thrown or shot missile (shared by throws and shots). Returns true when it is stopped. */

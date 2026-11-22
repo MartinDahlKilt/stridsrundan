@@ -14,6 +14,7 @@ export function CombatScreen({ session, config, onNewFight, onRematch }: { sessi
   const refresh = useCallback(() => setTick((t) => t + 1), []);
   const [boardMode, setBoardMode] = useState<BoardMode>(null);
   const [auto, setAuto] = useState(false);
+  const [hiddenEnemies, setHiddenEnemies] = useState<'ghost' | 'hide'>('ghost');
   const started = useRef(false);
   const mode = config.pauseAfterEachAction ? 'step' : 'untilHuman';
   const s = session.state;
@@ -48,6 +49,9 @@ export function CombatScreen({ session, config, onNewFight, onRematch }: { sessi
   };
 
   const pending = session.pending;
+  // The board shows what the human whose turn it is knows; between turns, what the only human fighter knows.
+  const humans = s.combatants.filter((c) => c.controller === 'human' && c.status === 'active');
+  const viewerId = pending ? pending.actorId : humans.length === 1 ? humans[0].id : null;
   const onSquare = (p: Pos) => {
     if (!boardMode || !pending) return;
     answer({ kind: boardMode.kind, to: p });
@@ -73,6 +77,15 @@ export function CombatScreen({ session, config, onNewFight, onRematch }: { sessi
               Let the AI decide
             </button>
           )}
+          {!allAi && (
+            <label className="small" title="How enemies hidden from the fighter whose turn it is appear on the map">
+              Hidden enemies{' '}
+              <select value={hiddenEnemies} onChange={(e) => setHiddenEnemies(e.target.value as 'ghost' | 'hide')}>
+                <option value="ghost">greyed out</option>
+                <option value="hide">not shown</option>
+              </select>
+            </label>
+          )}
           <button onClick={onRematch}>Rematch (new seed)</button>
           <button onClick={onNewFight}>New fight</button>
           <span className="muted seed">seed {s.seed}</span>
@@ -82,7 +95,15 @@ export function CombatScreen({ session, config, onNewFight, onRematch }: { sessi
       <main className="combat-main">
         <div className="left">
           <div className="table-row">
-            <Battlefield state={s} highlight={boardMode?.squares ?? null} highlightKind={boardMode?.kind ?? null} onSquare={onSquare} activeId={pending?.actorId ?? null} />
+            <Battlefield
+              state={s}
+              highlight={boardMode?.squares ?? null}
+              highlightKind={boardMode?.kind ?? null}
+              onSquare={onSquare}
+              activeId={pending?.actorId ?? null}
+              viewerId={viewerId}
+              hiddenEnemies={hiddenEnemies}
+            />
             <DiceTray state={s} />
           </div>
           {s.over && (

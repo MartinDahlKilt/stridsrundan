@@ -5,6 +5,8 @@ import { armOfHand, hasFreeHand, hasHero, heldItem, unarmedAllowed, unarmedFV, w
 import { activeConditions, hasCondition, limbUsable, scopesFor } from './conditions';
 import { weaponSpellMod } from './spellEffects';
 import { metres, squares, SQUARE_M, type Ctx } from './state';
+import { lightMod } from './light';
+import { CONCEAL_CL, COVER_CL, sight } from './terrain';
 import type { Combatant, Condition, ItemDef, Location } from './types';
 import { LOCATION_NAMES, mirror } from './types';
 
@@ -161,9 +163,11 @@ export function attackCL(ctx: Ctx, a: Combatant, d: Combatant, w: ResolvedWeapon
   const r = ctx.state.round;
   const mods: Mod[] = [];
   const notes: string[] = [];
-  const exposed = d.stance === 'defensive' ? null : d.blotta[a.id] ?? null;
+  const house = ctx.rules.houseRules;
+  const exposed = d.stance === 'defensive' || house ? null : d.blotta[a.id] ?? null;
 
   if (locationMod) mods.push(locationMod);
+  else if (house) mods.push(location === 'wild' ? { label: 'standard attack', value: 0 } : { label: `aim ${LOCATION_NAMES[location].toLowerCase()}`, value: -5 });
   else if (location === 'wild') mods.push({ label: 'wild swing', value: -5 });
   else if (location === exposed) mods.push({ label: 'exposed area', value: 0 });
   else mods.push({ label: `aim ${LOCATION_NAMES[location].toLowerCase()}`, value: aimPenalty(d, location) });
@@ -174,9 +178,14 @@ export function attackCL(ctx: Ctx, a: Combatant, d: Combatant, w: ResolvedWeapon
   if (w.kind === 'item' && w.offHandPenalty) mods.push({ label: 'shield hand', value: w.offHandPenalty });
   if (hasCondition(d, r, 'prone')) mods.push({ label: 'target on the ground', value: 5 });
   if (ctx.rules.flanking && !thrown) {
-    const dir = attackDirection(d, a.pos);
+    const dir = attackDirection(d, a.pos, ctx.state.grid);
     if (dir !== 'front') mods.push({ label: dir === 'side' ? 'from the side' : 'from behind', value: DIRECTION_BONUS[dir] });
   }
+  // A thrown sword is a ranged attack: taking cover counts against it.
+  const cover = thrown ? coverMod(ctx, a, d) : null;
+  if (cover) mods.push(cover);
+  const dimMelee = lightMod(ctx, a);
+  if (dimMelee) mods.push(dimMelee);
   if ((a.sheet.abilities ?? []).includes('precision')) mods.push({ label: 'Precision', value: 1 });
   mods.push(...heroMods(ctx, a, w.kind === 'item'));
   if (w.kind === 'item') mods.push(...weaponSpellMods(a, w.key, r));
@@ -271,6 +280,10 @@ export interface RangedCheck {
   rangeMod?: number;
   distanceM: number;
   maxRangeM: number;
+  /** The target crouches right behind this low obstacle: its legs are covered. */
+  cover?: string | null;
+  /** The target is in or behind bushes. */
+  concealed?: boolean;
 }
 
 export function rangedWeapon(c: Combatant): { key: string; def: ItemDef; fv: number } | null {
@@ -280,23 +293,32 @@ export function rangedWeapon(c: Combatant): { key: string; def: ItemDef; fv: num
   return { key: held.key, def: held.def, fv: weaponFV(c.sheet, held.state.def) };
 }
 
+/**
+ * Maximum range (III 2637–2645): thrown weapons reach the thrower's STY in squares (rutor), everything else has a
+ * range in metres; God bågskytt (KH 498) adds 25% to projectile weapons.
+ */
 export function maxRangeM(c: Combatant, def: ItemDef): number {
   if (def.rangeIsSty) return c.sheet.attributes.STY * SQUARE_M;
-  return def.range ?? 0;
+  const base = def.range ?? 0;
+  return def.kind === 'projectile' && (c.sheet.abilities ?? []).includes('goodArcher') ? base * 1.25 : base;
 }
 
-export function checkRanged(_ctx: Ctx, a: Combatant, d: Combatant): RangedCheck {
+export function checkRanged(ctx: Ctx, a: Combatant, d: Combatant): RangedCheck {
   const w = rangedWeapon(a);
-  const distanceM = metres(a.pos, d.pos);
+  const distanceM = metres(a.pos, d.pos, ctx.state.grid);
   if (!w) return { ok: false, reason: 'no ranged weapon in hand', distanceM, maxRangeM: 0 };
   const max = maxRangeM(a, w.def);
   if (a.shotThisRound) return { ok: false, reason: 'already shot this round', distanceM, maxRangeM: max };
-  if (squares(a.pos, d.pos) < 2) return { ok: false, reason: 'too close (needs a square between)', distanceM, maxRangeM: max };
+  if (squares(a.pos, d.pos, ctx.state.grid) < 2) return { ok: false, reason: 'too close (needs a square between)', distanceM, maxRangeM: max };
   if (w.def.ammo && (a.ammo[w.def.ammo] ?? 0) <= 0) return { ok: false, reason: 'out of ammunition', distanceM, maxRangeM: max };
   if (w.def.reload && !a.items[w.key].loaded) return { ok: false, reason: 'not loaded', distanceM, maxRangeM: max };
   const rm = rangeModifier(distanceM, max);
   if (rm === null) return { ok: false, reason: 'out of range', distanceM, maxRangeM: max };
-  return { ok: true, rangeMod: rm, distanceM, maxRangeM: max };
+  const view = sight(ctx.state.map, ctx.state.grid, a.pos, d.pos);
+  if (view.blocked) return { ok: false, reason: 'no line of sight', distanceM, maxRangeM: max };
+  // Cover and concealment from the terrain itself are a house rule (option `terrainCover`).
+  const terrain = ctx.rules.terrainCover;
+  return { ok: true, rangeMod: rm, distanceM, maxRangeM: max, cover: terrain ? view.cover : null, concealed: terrain && view.concealed };
 }
 
 export function rangedCL(ctx: Ctx, a: Combatant, d: Combatant, aimedAt: Location | null): ClResult {
@@ -311,9 +333,15 @@ export function rangedCL(ctx: Ctx, a: Combatant, d: Combatant, aimedAt: Location
     notes.push('FV halved: moving target');
   }
   if (check.rangeMod) mods.push({ label: `range ${check.distanceM} m`, value: check.rangeMod });
+  if (check.cover) mods.push({ label: `behind ${coverName(check.cover)}`, value: COVER_CL });
+  if (check.concealed) mods.push({ label: 'in/behind bushes', value: CONCEAL_CL });
+  const cover = coverMod(ctx, a, d);
+  if (cover) mods.push(cover);
+  const dimRanged = lightMod(ctx, a);
+  if (dimRanged) mods.push(dimRanged);
   if (a.aimBonus) mods.push({ label: 'aiming', value: a.aimBonus });
   if (aimedAt) mods.push({ label: `aim ${LOCATION_NAMES[aimedAt].toLowerCase()}`, value: -5 });
-  if (hasCondition(d, r, 'prone')) mods.push({ label: 'target on the ground', value: -squares(a.pos, d.pos) + 1 });
+  if (hasCondition(d, r, 'prone')) mods.push({ label: 'target on the ground', value: -squares(a.pos, d.pos, ctx.state.grid) + 1 });
   if (ctx.rules.windMs) mods.push({ label: 'wind', value: -ctx.rules.windMs });
   if ((a.sheet.abilities ?? []).includes('precision')) mods.push({ label: 'Precision', value: 1 });
   mods.push(...heroMods(ctx, a, true));
@@ -369,3 +397,32 @@ function heroMods(ctx: Ctx, c: Combatant, withWeapon: boolean): Mod[] {
 export function itemName(id: string): string {
   return itemDef(id).name;
 }
+
+/**
+ * Att söka skydd (II 1307–1329), ranged attacks only: behind cover the shooter loses the target's differensvärde;
+ * flat on the ground −1 per square between them.
+ */
+export function coverMod(ctx: Ctx, a: Combatant, d: Combatant): Mod | null {
+  const t = d.tookCover;
+  if (!t || t.round !== ctx.state.round || t.value < 0) return null;
+  if (t.how === 'cover') return t.value ? { label: 'target took cover', value: -t.value } : null;
+  const between = Math.max(0, squares(a.pos, d.pos, ctx.state.grid) - 1);
+  return between ? { label: 'target threw itself down', value: -between } : null;
+}
+
+/** "a crate", "the market stall" … for the log. */
+export function coverName(deco: string): string {
+  const names: Record<string, string> = {
+    crate: 'a crate',
+    barrel: 'a barrel',
+    table: 'a table',
+    stall: 'a market stall',
+    cart: 'a cart',
+    fence: 'a fence',
+    sarcophagus: 'a sarcophagus',
+  };
+  return names[deco] ?? 'cover';
+}
+
+/** Legs are what a low obstacle covers. */
+export const COVERED_BY_LOW: Location[] = ['leftLeg', 'rightLeg'];

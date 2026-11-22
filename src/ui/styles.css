@@ -450,6 +450,38 @@ details summary {
 .cell.hl:hover {
   fill: rgba(255, 236, 160, 0.6);
 }
+.sight-line {
+  stroke-width: 1.6;
+  pointer-events: none;
+}
+.sight-line.clear {
+  stroke: rgba(255, 240, 200, 0.8);
+  stroke-dasharray: 6 4;
+}
+.sight-line.cover {
+  stroke: rgba(240, 180, 60, 0.9);
+  stroke-dasharray: 4 4;
+}
+.sight-line.blocked {
+  stroke: rgba(220, 70, 50, 0.75);
+  stroke-dasharray: 2 4;
+}
+.sight-legend .clear {
+  color: #e9dcb8;
+}
+.sight-legend .cover {
+  color: #e0a63a;
+}
+.sight-legend .blocked {
+  color: #d0573f;
+}
+.map-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6em 1.2em;
+  align-items: center;
+  justify-content: center;
+}
 .range-line {
   stroke: rgba(255, 240, 200, 0.7);
   stroke-width: 1.2;
@@ -500,6 +532,27 @@ details summary {
   stroke: #ddd;
   stroke-dasharray: 3 3;
   stroke-width: 1.5px;
+}
+.token.unseen {
+  opacity: 0.38;
+  filter: grayscale(1);
+}
+.token.unseen .rim {
+  fill: rgba(60, 60, 60, 0.6);
+  stroke: #ccc;
+  stroke-dasharray: 3 3;
+  stroke-width: 1.5px;
+}
+.found-glyph {
+  pointer-events: none;
+}
+.found-glyph ellipse {
+  fill: #f4ecd2;
+  stroke: #2a1d0a;
+  stroke-width: 0.8;
+}
+.found-glyph circle {
+  fill: #2a1d0a;
 }
 .bar-bg {
   fill: rgba(0, 0, 0, 0.55);

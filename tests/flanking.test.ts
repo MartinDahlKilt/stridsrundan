@@ -15,27 +15,27 @@ const setup = (a: string, b: string, pa?: Pos, pb?: Pos) => [
 
 describe('facing', () => {
   it('splits the squares around a fighter into front, side and rear', () => {
-    const ctx = createCombat(setup('knight', 'barbarian', { x: 5, y: 5 }, { x: 6, y: 5 }), 1);
+    const ctx = createCombat(setup('knight', 'barbarian', { x: 5, y: 5 }, { x: 6, y: 5 }), 1, { grid: 'square' });
     const [k] = ctx.state.combatants;
     expect(k.facing).toEqual({ x: 1, y: 0 }); // towards the barbarian
-    expect(attackDirection(k, { x: 6, y: 4 })).toBe('front');
-    expect(attackDirection(k, { x: 6, y: 6 })).toBe('front');
-    expect(attackDirection(k, { x: 5, y: 4 })).toBe('side');
-    expect(attackDirection(k, { x: 5, y: 6 })).toBe('side');
-    expect(attackDirection(k, { x: 4, y: 4 })).toBe('rear');
-    expect(attackDirection(k, { x: 4, y: 5 })).toBe('rear');
+    expect(attackDirection(k, { x: 6, y: 4 }, 'square')).toBe('front');
+    expect(attackDirection(k, { x: 6, y: 6 }, 'square')).toBe('front');
+    expect(attackDirection(k, { x: 5, y: 4 }, 'square')).toBe('side');
+    expect(attackDirection(k, { x: 5, y: 6 }, 'square')).toBe('side');
+    expect(attackDirection(k, { x: 4, y: 4 }, 'square')).toBe('rear');
+    expect(attackDirection(k, { x: 4, y: 5 }, 'square')).toBe('rear');
     // Reach-2 squares: a knight's move ahead still counts as the front.
-    expect(attackDirection(k, { x: 7, y: 6 })).toBe('front');
+    expect(attackDirection(k, { x: 7, y: 6 }, 'square')).toBe('front');
   });
 
   it('gives +3 from the side and +7 from behind, unless the option is off', () => {
-    const ctx = createCombat(setup('barbarian', 'knight', { x: 5, y: 4 }, { x: 5, y: 5 }), 1);
+    const ctx = createCombat(setup('barbarian', 'knight', { x: 5, y: 4 }, { x: 5, y: 5 }), 1, { grid: 'square' });
     const [b, k] = ctx.state.combatants;
     const w = resolveWeapon(b, 'main')!;
-    faceTowards(k, { x: 6, y: 5 }); // the knight looks east; the barbarian is at its side
+    faceTowards(k, { x: 6, y: 5 }, 'square'); // the knight looks east; the barbarian is at its side
     const side = attackCL(ctx, b, k, w, 'chest');
     expect(side.mods).toContainEqual({ label: 'from the side', value: 3 });
-    faceTowards(k, { x: 5, y: 6 }); // now the barbarian is behind it
+    faceTowards(k, { x: 5, y: 6 }, 'square'); // now the barbarian is behind it
     const rear = attackCL(ctx, b, k, w, 'chest');
     expect(rear.mods).toContainEqual({ label: 'from behind', value: 7 });
     expect(rear.cl - side.cl).toBe(4);
@@ -43,12 +43,12 @@ describe('facing', () => {
     expect(attackCL(ctx, b, k, w, 'chest').mods.some((m) => m.label.startsWith('from'))).toBe(false);
   });
 
-  it('uses base chances for Smyga and Upptäcka fara, halving Smyga in metal armour', () => {
+  it('uses trained values or base chances for Smyga and Upptäcka fara, halving Smyga in metal armour', () => {
     const ctx = createCombat(setup('cutthroat', 'knight'), 1);
     const [cut, knight] = ctx.state.combatants;
-    expect(sneakFV(cut)).toEqual({ fv: 3, note: '' }); // SMI 16 → BC 3, leather
+    expect(sneakFV(cut)).toEqual({ fv: 14, note: '' }); // trained, in leather
     expect(sneakFV(knight).fv).toBe(1); // SMI 12 → BC 2, halved in plate
-    expect(spotDangerCL(knight).fv).toBe(3); // PSY 14
+    expect(spotDangerCL(knight).fv).toBe(4); // 9, −5 for the great helm (III 2935)
   });
 });
 
@@ -130,7 +130,7 @@ describe('sneaking up from behind', () => {
     expect(tried).toBeGreaterThan(0);
   });
 
-  it('starts hidden only when chosen, and only with the facing rule on', () => {
+  it('starts hidden only when chosen (hiding matters with or without the facing rule)', () => {
     const hiddenCut = (rules = {}) =>
       createCombat(
         [
@@ -141,6 +141,6 @@ describe('sneaking up from behind', () => {
         rules,
       ).state.combatants;
     expect(hiddenCut().map((c) => c.hidden)).toEqual([true, false]);
-    expect(hiddenCut({ flanking: false })[0].hidden).toBe(false);
+    expect(hiddenCut({ flanking: false })[0].hidden).toBe(true);
   });
 });

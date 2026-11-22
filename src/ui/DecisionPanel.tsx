@@ -140,8 +140,18 @@ function ActionPanel({ ctx, request, onAnswer, boardMode, setBoardMode, name }: 
           {o.shots.map((s) => (
             <div key={s.targetId}>
               <div className="row">
-                <ClButton cl={s.random} label={`${s.weaponName} at ${s.targetName} (${s.distanceM} m)`} onClick={() => onAnswer({ kind: 'shoot', targetId: s.targetId, location: null })} primary />
+                <ClButton
+                  cl={s.random}
+                  label={`${s.weaponName} at ${s.targetName} (${s.distanceM} of ${Math.round(s.maxRangeM)} m)`}
+                  onClick={() => onAnswer({ kind: 'shoot', targetId: s.targetId, location: null })}
+                  primary
+                />
               </div>
+              {s.inTheWay.length > 0 && (
+                <p className={`small ${s.friendsInTheWay.length ? 'warn' : 'muted'}`}>
+                  In the line of fire: {s.inTheWay.join(', ')} – each has a 50% chance to take the missile instead.
+                </p>
+              )}
               <details>
                 <summary className="small">Aim at a location (−5)</summary>
                 <div className="row wrap">
@@ -187,6 +197,40 @@ function ActionPanel({ ctx, request, onAnswer, boardMode, setBoardMode, name }: 
           {o.canIntimidate && (
             <button title="Spend the whole round staring the opposition down: they roll PSY against your hero status or fight at a penalty (HH)" onClick={() => onAnswer({ kind: 'intimidate' })}>
               Psych out the opponent (whole round)
+            </button>
+          )}
+          {o.takeCover && (
+            <>
+              {o.takeCover.behind && (
+                <button
+                  title={`Att söka skydd from ${o.takeCover.shooters.join(', ')}, who act after you: Normal SMI roll (CL ${o.takeCover.smi}). Success: every ranged attack at you this round loses your differensvärde. Uses all your actions this round.`}
+                  onClick={() => onAnswer({ kind: 'takeCover', how: 'cover' })}
+                >
+                  Take cover behind the {o.takeCover.behind} (whole round)
+                </button>
+              )}
+              <button
+                title={`Throw yourself down before ${o.takeCover.shooters.join(', ')} can shoot: Normal SMI roll (CL ${o.takeCover.smi}). Success: ranged attacks at you this round get −1 per square between. Uses all your actions this round.`}
+                onClick={() => onAnswer({ kind: 'takeCover', how: 'drop' })}
+              >
+                Throw yourself down (whole round)
+              </button>
+            </>
+          )}
+          {o.search && (
+            <button
+              title={`Finna dolda ting (FV ${o.search.fv}): one roll for each enemy hidden from you whose spot you can see, minus how well it hid. Whoever you find stays visible to you until it hides again or you lose sight of it.`}
+              onClick={() => onAnswer({ kind: 'search' })}
+            >
+              Search for hidden enemies ({o.search.hidden} hidden from you)
+            </button>
+          )}
+          {o.hide && (
+            <button
+              title="Gömma sig: you can't be shot at, targeted by spells or attacked by an enemy until it finds you (searching with Finna dolda ting minus your differensvärde, which costs it an action) or you attack. Moving while hidden is sneaking: half speed, Smyga once a minute, and anyone watching rolls Upptäcka fara. Only a hidden fighter can steal up behind someone."
+              onClick={() => onAnswer({ kind: 'hide' })}
+            >
+              Hide{o.hide.where} (Gömma sig CL {o.hide.cl}{o.hide.note})
             </button>
           )}
           {o.canDefensive && (
@@ -264,7 +308,12 @@ function AttackChooser({ options, onChoose, heroPoints }: { options: AttackOptio
         </div>
       )}
       <p className="small muted">
-        {opt.weaponName} against {opt.targetName}. {opt.exposed ? `Exposed area: ${LOCATION_NAMES[opt.exposed].toLowerCase()} (no penalty).` : 'No exposed area – every location is aimed.'}
+        {opt.weaponName} against {opt.targetName}.{' '}
+        {opt.standard
+          ? 'House rules: a standard attack hits a random location; aiming at a chosen location costs −5.'
+          : opt.exposed
+            ? `Exposed area: ${LOCATION_NAMES[opt.exposed].toLowerCase()} (no penalty).`
+            : 'No exposed area – every location is aimed.'}
       </p>
       <div className="attack-body">
         <div className="body-grid">
@@ -288,7 +337,12 @@ function AttackChooser({ options, onChoose, heroPoints }: { options: AttackOptio
           )}
         </div>
         <div className="attack-side">
-          <ClButton cl={opt.wild} label="Wild swing (random location)" onClick={() => choose('wild')} />
+          <ClButton
+            cl={opt.wild}
+            label={opt.standard ? 'Standard attack (random location)' : 'Wild swing (random location)'}
+            onClick={() => choose('wild')}
+            primary={opt.standard}
+          />
           {opt.maneuvers.length > 0 && (
             <fieldset className="techs">
               <legend>Hero manoeuvre (replaces a normal attack)</legend>

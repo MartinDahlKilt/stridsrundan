@@ -1,4 +1,5 @@
 import { itemDef } from '../data/items';
+import { RANDOM_MELEE } from '../data/tables';
 import { armourAt, heldItem } from './character';
 import { avgDice } from './dice';
 import { resolveWeapon } from './cl';
@@ -6,9 +7,10 @@ import { weaponDamageDice } from './damage';
 import { planMagic } from './aiMagic';
 import { type ActionChoice, type AttackChoice, type AttackOption, type DecisionAnswer, type DecisionRequest, type Maneuver } from './requests';
 import { attackDirection } from './facing';
-import { byId, enemiesOf, log, squares, type Ctx } from './state';
+import { byId, log, squares, visibleEnemiesOf, type Ctx } from './state';
+import { canSee, movementCosts } from './terrain';
 import type { Combatant, Location, Pos } from './types';
-import { LOCATION_NAMES } from './types';
+import { LOCATION_NAMES, mirror } from './types';
 
 /**
  * Default computer opponent (implementation-plan §3.4). Simple and transparent: every choice is
@@ -51,6 +53,16 @@ const LOCATION_WEIGHT: Record<Location, number> = {
   leftLeg: 0.9,
 };
 
+/** Chance of each location on the random melee table (1T20), mirrored for a left-handed defender. */
+function randomMeleeOdds(d: Combatant): [Location, number][] {
+  let prev = 0;
+  return RANDOM_MELEE.map(([max, loc]) => {
+    const p = (max - prev) / 20;
+    prev = max;
+    return [d.fightingSide === 'left' ? mirror(loc) : loc, p];
+  });
+}
+
 function bestAttack(ctx: Ctx, a: Combatant, options: AttackOption[]): { score: number; choice: AttackChoice } | null {
   let best: { score: number; choice: AttackChoice } | null = null;
   for (const opt of options) {
@@ -66,13 +78,19 @@ function bestAttack(ctx: Ctx, a: Combatant, options: AttackOption[]): { score: n
       if (m.id === 'triple') plans.push({ maneuver: 'triple', strikes: 3, clShift: Math.floor(w.fv / 3) - w.fv, bonus: 1 });
       if (m.id === 'lightning') plans.push({ maneuver: 'lightning', strikes: 1, clShift: -10, bonus: 1.4 });
     }
+    const value = (loc: Location) => {
+      const arm = armourAt(target, loc);
+      const kp = Math.max(0.3, avgDice(dice.kp) + sb - arm.absKP);
+      const sp = Math.max(0, avgDice(dice.sp) + sb - arm.absSP) * 0.6;
+      return (kp + sp) * LOCATION_WEIGHT[loc];
+    };
+    // House rules: the standard attack (random location, no penalty) is a real alternative to aiming at −5.
+    const candidates: { location: Location | 'wild'; cl: number; value: number }[] = opt.locations.map((lo) => ({ location: lo.location, cl: lo.cl.cl, value: value(lo.location) }));
+    if (opt.standard) candidates.push({ location: 'wild', cl: opt.wild.cl, value: randomMeleeOdds(target).reduce((s, [loc, p]) => s + p * value(loc), 0) });
     for (const plan of plans) {
-      for (const lo of opt.locations) {
-        const arm = armourAt(target, lo.location);
-        const p = Math.max(0.05, Math.min(0.95, (lo.cl.cl + plan.clShift) / 20));
-        const kp = Math.max(0.3, avgDice(dice.kp) + sb - arm.absKP);
-        const sp = Math.max(0, avgDice(dice.sp) + sb - arm.absSP) * 0.6;
-        const score = plan.strikes * p * (kp + sp) * LOCATION_WEIGHT[lo.location] * plan.bonus;
+      for (const lo of candidates) {
+        const p = Math.max(0.05, Math.min(0.95, (lo.cl + plan.clShift) / 20));
+        const score = plan.strikes * p * lo.value * plan.bonus;
         if (!best || score > best.score) {
           best = {
             score,
@@ -109,14 +127,21 @@ function decideAction(ctx: Ctx, c: Combatant, req: Extract<DecisionRequest, { ki
   // Melee if anyone is in reach.
   if (attack) {
     const choice = attack.choice;
-    say(`attacks the ${choice.location === 'wild' ? 'body' : LOCATION_NAMES[choice.location].toLowerCase()} – best expected damage after armour.`);
+    say(`${choice.location === 'wild' ? 'makes a standard attack (random location)' : `attacks the ${LOCATION_NAMES[choice.location].toLowerCase()}`} – best expected damage after armour.`);
     return choice;
   }
 
-  const enemies = enemiesOf(ctx, c);
-  if (!enemies.length) return { kind: 'hold' };
-  const nearest = enemies.sort((x, y) => squares(c.pos, x.pos) - squares(c.pos, y.pos))[0];
-  const dist = squares(c.pos, nearest.pos);
+  const enemies = visibleEnemiesOf(ctx, c);
+  if (!enemies.length) {
+    // Enemies about, but hidden: spend the action looking for them.
+    if (o.search) {
+      say('looks around for the hidden enemy.');
+      return { kind: 'search' };
+    }
+    return { kind: 'hold' };
+  }
+  const nearest = enemies.sort((x, y) => squares(c.pos, x.pos, ctx.state.grid) - squares(c.pos, y.pos, ctx.state.grid))[0];
+  const dist = squares(c.pos, nearest.pos, ctx.state.grid);
 
   // A hero stares the opponent down while they are still closing in.
   if (o.canIntimidate && dist > 6) {
@@ -126,9 +151,17 @@ function decideAction(ctx: Ctx, c: Combatant, req: Extract<DecisionRequest, { ki
   const main = heldItem(c, 'main');
   const holdingRanged = main && (main.def.kind === 'projectile' || main.def.kind === 'thrown');
 
+  // Badly hurt, under fire and with something to duck behind: take cover for the round (II 1307).
+  if (o.takeCover?.behind && !holdingRanged && o.takeCover.smi >= 8 && c.kpTotal.cur <= c.kpTotal.max * 0.5 && dist > 4) {
+    say(`ducks behind the ${o.takeCover.behind} before ${o.takeCover.shooters.join(' and ')} can shoot.`);
+    return { kind: 'takeCover', how: 'cover' };
+  }
+
   // Ranged: aim with spare actions, shoot with the last one this round.
   if (holdingRanged && dist >= 2) {
-    const shot = o.shots.find((s) => s.targetId === nearest.id);
+    // The nearest enemy if it can be hit, else whoever can – never with a friend in the line of fire.
+    const clear = o.shots.filter((s) => !s.friendsInTheWay.length);
+    const shot = clear.find((s) => s.targetId === nearest.id) ?? [...clear].sort((x, y) => y.random.cl - x.random.cl)[0];
     const slotsLeft = c.slots.filter((s) => !s.used && !s.lost).length;
     const willCloseIn = dist <= 3;
     if (shot) {
@@ -136,12 +169,23 @@ function decideAction(ctx: Ctx, c: Combatant, req: Extract<DecisionRequest, { ki
         say('aims before shooting.');
         return { kind: 'aim' };
       }
-      say(`shoots (CL ${shot.random.cl}).`);
-      return { kind: 'shoot', targetId: nearest.id, location: null };
+      say(`shoots${shot.targetId === nearest.id ? '' : ` at ${shot.targetName}`} (CL ${shot.random.cl}).`);
+      return { kind: 'shoot', targetId: shot.targetId, location: null };
     }
     if (o.canReload) {
       say('reloads.');
       return { kind: 'reload' };
+    }
+    // Something is in the way: step to where the enemy can be seen, keeping as far off as possible.
+    const noSight = o.blockedShots.some((b) => b.targetName === nearest.sheet.name && b.reason === 'no line of sight');
+    if (noSight && o.move && dist > 2) {
+      const view = o.move.squares
+        .filter((p) => squares(p, nearest.pos, ctx.state.grid) > 2 && canSee(ctx.state.map, ctx.state.grid, p, nearest.pos))
+        .sort((p, q) => squares(c.pos, p, ctx.state.grid) - squares(c.pos, q, ctx.state.grid) || squares(q, nearest.pos, ctx.state.grid) - squares(p, nearest.pos, ctx.state.grid))[0];
+      if (view) {
+        say(`moves to get a clear shot at ${nearest.sheet.name}.`);
+        return { kind: 'move', to: view };
+      }
     }
   }
 
@@ -164,9 +208,9 @@ function decideAction(ctx: Ctx, c: Combatant, req: Extract<DecisionRequest, { ki
   // Close in.
   if (o.move) {
     const reach = Math.max(1, ...meleeReaches(c));
-    const dest = approach(c.pos, nearest, o.move.squares, reach, ctx.rules.flanking);
+    const dest = approach(ctx, c.pos, nearest, o.move.squares, reach);
     if (dest) {
-      const dir = ctx.rules.flanking && squares(dest, nearest.pos) <= reach ? attackDirection(nearest, dest) : 'front';
+      const dir = ctx.rules.flanking && squares(dest, nearest.pos, ctx.state.grid) <= reach ? attackDirection(nearest, dest, ctx.state.grid) : 'front';
       say(`moves ${dir === 'rear' ? 'behind' : dir === 'side' ? 'to the side of' : 'towards'} ${nearest.sheet.name}.`);
       return { kind: 'move', to: dest };
     }
@@ -197,19 +241,25 @@ function meleeReaches(c: Combatant): number[] {
  * Pick the reachable square closest to the target, preferring squares within weapon reach – and among those,
  * squares at the target's side (+3 CL) or back (+7 CL) when facing counts.
  */
-function approach(from: Pos, foe: Combatant, options: Pos[], reach: number, flanking: boolean): Pos | null {
+function approach(ctx: Ctx, from: Pos, foe: Combatant, options: Pos[], reach: number): Pos | null {
+  const flanking = ctx.rules.flanking;
   const target = foe.pos;
+  const { map, grid } = ctx.state;
+  // How far each cell is from the foe on foot – round walls, not through them.
+  const walk = movementCosts(map, grid, target, Infinity);
   let best: { p: Pos; score: number } | null = null;
   for (const p of options) {
-    const d = squares(p, target);
+    const d = squares(p, target, ctx.state.grid);
     if (d === 0) continue;
-    const inReach = d <= reach;
-    const dir = flanking && inReach ? attackDirection(foe, p) : 'front';
+    const inReach = d <= reach && canSee(map, grid, p, target);
+    const away = walk.cost(p);
+    if (away === Infinity) continue;
+    const dir = flanking && inReach ? attackDirection(foe, p, ctx.state.grid) : 'front';
     const flank = dir === 'rear' ? 40 : dir === 'side' ? 20 : 0;
-    const score = (inReach ? 1000 : 0) + flank - d * 10 - squares(from, p) * (inReach ? 1 : 0) - Math.abs(p.y - target.y) * 0.1;
+    const score = (inReach ? 1000 : 0) + flank - away * 10 - squares(from, p, ctx.state.grid) * (inReach ? 1 : 0) - Math.abs(p.y - target.y) * 0.1;
     if (!best || score > best.score) best = { p, score };
   }
   if (!best) return null;
-  return squares(best.p, target) < squares(from, target) ? best.p : null;
+  return walk.cost(best.p) < walk.cost(from) ? best.p : null;
 }
 

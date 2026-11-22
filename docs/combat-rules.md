@@ -1081,6 +1081,10 @@ All proposed defaults, corrections and SIM interpretations below were **accepted
 | SIM-30 | Parrying spells | Damage spells can't be parried or dodged; only SKÖLD and VIRVELSKÖLD defend |
 | SIM-31 | FLAMMANDE HAND "on the blows" | Adds to every melee blow (staff or fist) |
 | SIM-32 | Misfire results lasting minutes or days | Unconscious, paralysed, mute or memory loss count for the rest of the fight |
+| SIM-33 | Searching for a hidden fighter | An action (Search): one Finna dolda ting roll for each enemy hidden from the searcher whose spot it can see, minus the hider's differensvärde. A find is the searcher's own: the hider stays visible to it until it hides again or the searcher loses sight of it. Being noticed while sneaking (Upptäcka fara) works the same way |
+| SIM-34 | Where can you hide in a fight? | Anywhere you are out of sight for a while, with no enemy in reach – the best spot at hand counts: out of every enemy's sight +3, under a cart +3, in bushes +2, behind a crate/barrel/table/stall/fence +1, in the shadow of a wall/house/tree/boulder/pillar ±0, anywhere in darkness ±0 |
+| SIM-35 | Finna dolda ting: INT or PSY? | INT, as in the skill description (I 2229); III's skill table says PSY |
+| SIM-36 | Att söka skydd in the detailed round | Only as the first action of the round (opportunity 1, nothing done yet), only when an enemy who acts later (lower initiative) could shoot at you, and it uses every action that round. It only affects ranged attacks (including a thrown sword) |
 
 ---
 
@@ -1243,3 +1247,97 @@ Summoned creatures (FRAMMANA ELEMENTAR, STENJÄTTE, ELDDRAKE, ISORM, LEVIATHAN, 
 battlefield-sized spells (JORDBÄVNING, ELDSTORM, ISSTORM, FLODVÅG, MUR AV ELD, GIFTMOLN, SÄNKA SKEPP), ASTRALVAPEN, ANTIMAGI/SKINGRA,
 non-elemental schools (Animism, Mentalism and the MH schools), extra effect grades for range or duration, wild magic, improvised magic,
 mini-magic, familiars, scrolls and magic items.
+
+## 23. The battlefield – grid, terrain, line of sight, cover, hiding and light
+
+The books measure in 1.5 m squares and leave terrain to the game master. Rules from the books are marked with their
+source; the rest are house rules.
+
+### 23.1 Grid and size (house rules)
+- **Hexes (default) or squares** (rules option *Hex battlefield*). On squares a diagonal step counts as one, so it
+  covers 2.1 m; on 1.5 m hexes every step is the same length. Facing on hexes: the 3 hexes ahead are the front, the
+  2 behind the shoulders the side (+3), the one straight behind the rear (+7).
+- **Size**: small 21 × 11 (the original field), medium 31 × 19 (default), large 41 × 25. The sides start at opposite
+  ends, an eighth of the width in from the edge – 22 cells (33 m) apart on the medium field.
+
+### 23.2 Settings and light
+- A random layout for the setting (same seed + setting + size + grid = same map): **open field**, **forest**,
+  **town square**, **inside (hall)**, **dungeon** and **cave**. Both starting areas are always clear and joined.
+- **Light** `[II 1343]`: daylight; dusk, moonlight or torchlight **−5** to all attacks, melee and ranged; darkness
+  **−15**. Defaults: daylight outdoors, torchlight indoors and underground; it can be changed in the setup.
+  - Dwarves see perfectly in the dark (Mörkersyn) `[I 628]` – no penalty.
+  - Nattsyn `[KH 494]`: no penalty in dim light.
+  - **Strid i mörker** `[KH, secondary PSY]`: rolled at the start of each round in poor light; a success means no
+    penalty in dim light and −5 in darkness. A profession skill for warrior professions, assassins, monks, thieves
+    and rangers.
+
+### 23.3 Terrain and movement
+| Terrain | Movement | Sight |
+| :--- | :--- | :--- |
+| Wall, house, tree, boulder, pillar | blocked | blocked |
+| Deep water | blocked | clear |
+| Low obstacle (crate, barrel, table, stall, cart, fence, sarcophagus) | blocked | clear |
+| Bushes, rubble, shallow water | costs 2 | clear |
+| Doorway | 1 | clear |
+
+- Difficult ground slows you down, by how much is up to the game master `[II 1199]` – here 2 per cell.
+- Movement follows a path round obstacles; enemies can't be walked through, allies can (but not stopped on).
+- **Line of sight** runs between cell centres. Obstacles next to the one looking are ignored, and a line grazing a
+  corner counts as clear. Ranged attacks, thrown swords, spells and melee attacks with reach all need it; area
+  spells don't reach behind walls from their centre.
+
+### 23.4 Ranged attacks
+- **Range** `[III 2637–2645]`: no penalty closer than half the weapon's range, **−5** from ½ to ¾, **−10** from ¾ to
+  the full range, and no shot beyond it. Bows, crossbows and slings have a range in metres; **thrown weapons reach
+  the thrower's STY in squares** (1.5 m each) `[III 2737, KH 3627]`. **God bågskytt** `[KH 498]`: +25% range with all
+  projectile weapons. Distance is measured in metres between cell centres.
+  - On these battlefields (≤ 61 m) bows and crossbows (135–250 m) never reach half their range; slings (90 m),
+    staff slings (120 m), blowpipes (20 m) and thrown weapons (STY 10–18 → 15–27 m) do.
+- **At least one square** between shooter and target `[II 1294]`.
+- **Aiming** `[KH 1764]`: +1 per action spent aiming, at most +3.
+- **People in the line of fire** `[II 1296]`: shooting through a cell with someone in it risks hitting them – each
+  one, nearest first, takes the missile instead on 1T100 ≤ 50. The computer never shoots with a friend in the way.
+- **A miss flies on** `[III 2624–2629]`: 50% further than the target, within the weapon's range, along a path one cell
+  wide until something solid stops it; everyone in it, in turn, is hit on 1T100 ≤ their STO.
+- **Taking cover** – *Att söka skydd* `[II 1307–1329]`: duck behind something next to you (a tree, stone, corner,
+  wall, table, cart …) or throw yourself down. Normal SMI roll. 🔧 SIM-36: only at the start of the round, before you
+  have done anything, when an enemy who acts after you (lower initiative) could shoot at you; it uses every action
+  that round and only counts against ranged attacks: behind cover each shot loses your differensvärde, on the ground
+  −1 per square between you and the shooter.
+- **Terrain cover** (house rule, option *Terrain cover*, on by default): a low obstacle right in front of the target,
+  seen from the shooter, covers its legs (a hit there strikes the obstacle; aimed shots at the legs aren't offered)
+  and costs −3 CL; shooting into or through bushes −3.
+
+### 23.5 Hiding, searching and sneaking
+- **Hide** – *Gömma sig* `[I 2254]` (INT, primary; halflings +4): one action. You need somewhere to be out of sight for
+  a while and no enemy in reach (🔧 SIM-34); the best spot at hand gives the game master's modifier: out of every
+  enemy's sight +3, under a cart +3, in bushes +2, behind a crate, barrel, table, stall or fence +1, in the shadow of
+  a wall, house, tree, boulder or pillar ±0, anywhere in darkness ±0. Light: dusk/torchlight +2, night +5.
+- An enemy can't shoot, cast at, attack or approach a fighter hidden from it.
+- **Searching** – *Finna dolda ting* `[I 2229]` (INT, 🔧 SIM-35) costs an action (🔧 SIM-33): one roll for each enemy
+  hidden from you whose spot you can see, minus its differensvärde. A great helm gives −5 to Finna dolda ting and
+  Upptäcka fara `[III 2935]`.
+- **A find is personal and lasts**: the hider stays visible to whoever found it until it hides again or that
+  enemy loses sight of it. Others still have to find it themselves.
+- **Finna dolda ting above 20 is always on** `[HH 594]`: the game master rolls it constantly, so such a fighter
+  searches at the start of every round without spending an action.
+- On the map, enemies hidden from the fighter whose turn it is are greyed out (or, by choice, not shown); enemies
+  it has found carry a small eye.
+- **Moving while hidden is sneaking** – *Smyga* `[I 2300]` (SMI): at most half speed; one Smyga roll a minute
+  (12 rounds) – failing it, everyone who can see the spot hears you; each round you move, every enemy who can see
+  you and hasn't found you rolls Upptäcka fara minus your Smyga differensvärde, and those who succeed have found you.
+  Metal armour halves Smyga `[III 2968]`.
+- **Smyga above 20** `[HH 626]`: no half-speed limit – such a fighter can sneak up to its full normal movement in a
+  round. In a round where it goes further than half speed it rolls Smyga again at −5, and that roll (failing it, or
+  its smaller differensvärde against Upptäcka fara) counts for that round; the minute's roll still holds for slow
+  sneaking. Judged on the skill itself, before metal armour halves it.
+- Attacking, shooting, casting, running or being attacked gives you away to everyone (as SIM-28). Fighters hidden
+  from the start count as hidden with differensvärde 0.
+- **Anfall bakifrån** `[II 1738–1756]`: only against someone the attacker is hidden from; Smyga, then the
+  defender's Upptäcka fara minus the difference.
+- The computer opponents search when every enemy they know of is hidden; they don't hide themselves.
+
+### 23.6 Not modelled
+Clothing modifiers for Gömma sig, the Smygtabell's weather and ground modifiers (rain, wind in trees, gravel …),
+Lyssna, Kamouflage and Smyga osedd `[TL]`, the extra-careful quarter-speed sneak, headwind shortening ranges, and
+mörkersyn for other races than dwarves.

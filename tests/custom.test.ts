@@ -9,9 +9,9 @@ import { buildEquipment } from '../src/ui/customCharacters';
 const cat = (sheet: CharacterSheet) => Object.fromEntries(classifySkills(sheet).map((r) => [r.key, r.category]));
 
 describe('skill categories', () => {
-  it('brawling is primary; a warrior takes any weapon skills as profession skills', () => {
+  it('brawling, Upptäcka fara and Finna dolda ting are primary; a warrior takes any weapon skills as profession skills', () => {
     const merc = presetById('mercenary');
-    expect(cat(merc)).toEqual({ broadsword: 'profession', heaterShield: 'profession', dagger: 'profession', brawling: 'primary', fallTechnique: 'profession' });
+    expect(cat(merc)).toEqual({ broadsword: 'profession', heaterShield: 'profession', dagger: 'profession', brawling: 'primary', fallTechnique: 'profession', spotDanger: 'primary', findHidden: 'primary' });
   });
 
   it('a profession with a weapon-skill limit gives the slots to the highest FVs', () => {

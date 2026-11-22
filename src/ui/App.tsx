@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { CombatSession } from '../engine/session';
-import type { RulesConfig } from '../engine/rules';
+import { generateMap } from '../engine/mapgen';
+import { DEFAULT_RULES, type RulesConfig } from '../engine/rules';
+import { DEFAULT_MAP_SPEC, type MapSpec } from '../engine/terrain';
 import { CombatScreen } from './CombatScreen';
 import { characterById, loadCustoms, saveCustoms, type CustomCharacter } from './customCharacters';
 import { SetupScreen, type FighterSetup } from './SetupScreen';
@@ -9,6 +11,8 @@ export interface FightConfig {
   fighters: FighterSetup[];
   seed: number;
   rules: Partial<RulesConfig>;
+  /** The battlefield: setting, size and layout seed. */
+  map?: MapSpec;
   pauseAfterEachAction: boolean;
 }
 
@@ -26,6 +30,7 @@ export function App() {
       config.fighters.map((f) => ({ sheet: characterById(f.presetId, customs), team: f.team, controller: f.controller, pos: f.pos, hidden: f.hidden })),
       config.seed,
       config.rules,
+      generateMap(config.map ?? { ...DEFAULT_MAP_SPEC, seed: config.seed }, { ...DEFAULT_RULES, ...config.rules }.grid),
     );
     setLastConfig(config);
     setFight({ session, config });
